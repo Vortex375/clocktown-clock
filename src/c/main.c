@@ -4,10 +4,9 @@
  * Watchface inspired by the Clock Tower clock from The Legend of Zelda:
  * Majora's Mask, for Pebble Time 2 (emery, 200x228 rectangular display).
  *
- * This is the STATIC design pass. The time logic (minute ring rotating
- * counter-clockwise, hour disc rotating counter-clockwise, current value
- * always at the top) will be added in a later pass. Everything on the ring
- * and the disc is placed through local_pt(), which already takes an angle.
+ * The minute ring and the hour disc both turn counter-clockwise; the
+ * current minute and hour are the marks at the top. The corners show steps,
+ * current temperature (via PebbleKit JS + Open-Meteo), heart rate and date.
  *
  * Design references (workspace res/ folder):
  *  - clocktownclockcolourguide.jpg  (flat colour guide, traced for the face)
@@ -53,6 +52,15 @@
 static Window *s_window;
 static Layer *s_canvas_layer;
 static GPoint s_center;
+static int s_face_rot;   // hour disc rotation in degrees (counter-clockwise < 0)
+static int s_ring_rot;   // minute ring rotation
+
+// Corner texts
+static char s_steps[12] = "--";
+static char s_temp[8] = "--\u00b0";
+static char s_hr[12] = "--";
+static char s_wday[8] = "";
+static char s_mday[4] = "";
 
 // Sneaker icon for steps (relative to its top-left corner)
 static GPoint s_shoe_points[9] = {
@@ -73,7 +81,7 @@ static int rdiv(int32_t v, int32_t d) {
 // Point at radius r (outward) and tangential offset t (clockwise) around c,
 // for a frame rotated by deg. t and r are in quarter pixels.
 static GPoint local_pt(GPoint c, int deg, int t, int r) {
-  int32_t a = DEG_TO_TRIGANGLE(deg);
+  int32_t a = DEG_TO_TRIGANGLE(((deg % 360) + 360) % 360);
   int32_t s = sin_lookup(a), co = cos_lookup(a);
   return GPoint(c.x + rdiv(r * s + t * co, 4 * TRIG_MAX_RATIO),
                 c.y + rdiv(-r * co + t * s, 4 * TRIG_MAX_RATIO));
@@ -85,7 +93,7 @@ static GPoint polar_around(GPoint c, int deg, int r) {
 
 // Face unit coordinates (x right, y down) -> screen
 static GPoint face_pt(int x, int y) {
-  return local_pt(s_center, 0, UQ(x), UQ(-y));
+  return local_pt(s_center, s_face_rot, UQ(x), UQ(-y));
 }
 
 static GRect radial_rect(int r) {
@@ -239,19 +247,19 @@ static void draw_corners(GContext *ctx, GRect bounds) {
   graphics_draw_line(ctx, GPoint(shoe.x + 1, shoe.y + 9), GPoint(shoe.x + 16, shoe.y + 9));
   graphics_draw_line(ctx, GPoint(shoe.x + 8, shoe.y + 4), GPoint(shoe.x + 9, shoe.y + 6));
   graphics_draw_line(ctx, GPoint(shoe.x + 11, shoe.y + 5), GPoint(shoe.x + 12, shoe.y + 7));
-  draw_value(ctx, "4521", xl, 12);
+  draw_value(ctx, s_steps, xl, 12);
 
   // Top-right: current weather
   draw_cloud_sun(ctx, GPoint(cxr - 2, 11));
-  draw_value(ctx, "18\u00b0", xr, 14);
+  draw_value(ctx, s_temp, xr, 14);
 
   // Bottom-left: heart rate
-  draw_value(ctx, "72", xl, h - 38);
+  draw_value(ctx, s_hr, xl, h - 38);
   draw_heart(ctx, GPoint(cxl, h - 10));
 
   // Bottom-right: date (weekday + calendar with day of month)
-  draw_value(ctx, "SAT", xr, h - 41);
-  draw_calendar(ctx, GPoint(cxr, h - 11), "17");
+  draw_value(ctx, s_wday, xr, h - 41);
+  draw_calendar(ctx, GPoint(cxr, h - 11), s_mday);
 }
 // ---------------------------------------------------------------------------
 // Minute ring: 60 carvings, hour positions marked by shields, the 12 o'clock
@@ -353,38 +361,45 @@ static const int16_t s_arrow[5][2] = {
   { 0, -262 }, { -18, -240 }, { -72, -215 }, { -30, -195 }, { 0, -130 }
 };
 
-static void draw_sun_disc(GContext *ctx, GPoint c) {
+static void draw_sun_disc(GContext *ctx, GPoint c, int rot) {
   fill_circle(ctx, c, 22, C_WOOD);
   stroke_circle(ctx, c, 22, C_LINE, 1);
   for (int i = 0; i < 8; i++) {
     // Squiggle between two dots
-    int a = 22 + i * 45;
+    int a = rot + 22 + i * 45;
     GPoint s[4] = { local_pt(c, a, 0, 44), local_pt(c, a, 4, 50),
                     local_pt(c, a, -4, 56), local_pt(c, a, 0, 62) };
     graphics_context_set_stroke_color(ctx, C_RED);
     graphics_context_set_stroke_width(ctx, 2);
     for (int k = 0; k < 3; k++) graphics_draw_line(ctx, s[k], s[k + 1]);
-    fill_circle(ctx, polar_around(c, i * 45, 17), 2, C_RED);
+    fill_circle(ctx, polar_around(c, rot + i * 45, 17), 2, C_RED);
   }
   fill_circle(ctx, c, 8, C_RED);
   stroke_circle(ctx, c, 8, C_LINE, 1);
 }
 
-static void draw_face(GContext *ctx) {
+// Face sector from deg `from` clockwise to `to` (face frame), inset px deep
+static void face_sector(GContext *ctx, int inset, int from, int to, GColor fill) {
+  int a0 = (((from + s_face_rot) % 360) + 360) % 360;
+  int a1 = a0 + (((to - from) % 360) + 360) % 360;
   GRect face = radial_rect(R_FACE);
+  graphics_context_set_fill_color(ctx, fill);
+  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, inset,
+                       DEG_TO_TRIGANGLE(a0), DEG_TO_TRIGANGLE(a1 < 360 ? a1 : 360));
+  if (a1 > 360) {
+    graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, inset,
+                         0, DEG_TO_TRIGANGLE(a1 - 360));
+  }
+}
+
+static void draw_face(GContext *ctx) {
+  int rot = s_face_rot;
 
   // Background zones: blue sides, peach top, teal rim bands
   fill_circle(ctx, s_center, R_FACE, C_BLUE);
-  graphics_context_set_fill_color(ctx, C_PEACH);
-  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, R_FACE,
-                       DEG_TO_TRIGANGLE(308), DEG_TO_TRIGANGLE(360));
-  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, R_FACE,
-                       DEG_TO_TRIGANGLE(0), DEG_TO_TRIGANGLE(52));
-  graphics_context_set_fill_color(ctx, C_TEAL);
-  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, 10,
-                       DEG_TO_TRIGANGLE(255), DEG_TO_TRIGANGLE(318));
-  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, 10,
-                       DEG_TO_TRIGANGLE(42), DEG_TO_TRIGANGLE(105));
+  face_sector(ctx, R_FACE, 308, 52, C_PEACH);
+  face_sector(ctx, 10, 255, 318, C_TEAL);
+  face_sector(ctx, 10, 42, 105, C_TEAL);
   face_pair(ctx, s_slate, 11, C_SLATE);
   face_sym(ctx, s_bottom, 10, C_YELLOW);
 
@@ -407,12 +422,12 @@ static void draw_face(GContext *ctx) {
 
   // Hour markers on one circle: eye at 12, red rings at 3/9, sun disc at 6,
   // white dots elsewhere
-  local_oval(ctx, s_center, 0, 0, UQ(315), UQ(55), UQ(62), C_RED, 1);
-  local_oval(ctx, s_center, 0, 0, UQ(315), UQ(24), UQ(32), C_WHITE, 1);
+  local_oval(ctx, s_center, rot, 0, UQ(315), UQ(55), UQ(62), C_RED, 1);
+  local_oval(ctx, s_center, rot, 0, UQ(315), UQ(24), UQ(32), C_WHITE, 1);
   for (int i = 1; i < 12; i++) {
-    int a = i * 30;
+    int a = rot + i * 30;
     if (i == 6) {
-      draw_sun_disc(ctx, polar_around(s_center, a, 49));
+      draw_sun_disc(ctx, polar_around(s_center, a, 49), rot);
     } else if (i % 3 == 0) {
       GPoint p = polar_around(s_center, a, 62);
       fill_circle(ctx, p, 10, C_RED);
@@ -433,21 +448,85 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, C_BG);
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-  draw_ring(ctx, 0);
+  draw_ring(ctx, s_ring_rot);
   draw_face(ctx);
   draw_corners(ctx, bounds);
 }
 
 // ---------------------------------------------------------------------------
-// Time handling (static design: redraw only, no time logic yet)
+// Data: time, health, weather
 // ---------------------------------------------------------------------------
 
-static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-  (void)tick_time;
-  (void)units_changed;
-  if (s_canvas_layer) {
-    layer_mark_dirty(s_canvas_layer);
+#define PERSIST_TEMP 1  // last temperature received from the phone
+
+static void update_time(struct tm *t) {
+  // Both turn counter-clockwise so the current value sits at the top
+  s_ring_rot = -t->tm_min * 6;
+  s_face_rot = -(t->tm_hour % 12) * 30;
+  strftime(s_wday, sizeof(s_wday), "%a", t);
+  for (char *c = s_wday; *c; c++) {
+    if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
   }
+  snprintf(s_mday, sizeof(s_mday), "%d", t->tm_mday);
+}
+
+static bool health_available(HealthMetric metric, time_t start, time_t end) {
+  return health_service_metric_accessible(metric, start, end) &
+         HealthServiceAccessibilityMaskAvailable;
+}
+
+static void update_health(void) {
+  time_t now = time(NULL);
+  if (health_available(HealthMetricStepCount, time_start_of_today(), now)) {
+    int steps = (int)health_service_sum_today(HealthMetricStepCount);
+    if (steps < 10000) {
+      snprintf(s_steps, sizeof(s_steps), "%d", steps);
+    } else {
+      snprintf(s_steps, sizeof(s_steps), "%d.%dk", steps / 1000, steps % 1000 / 100);
+    }
+  }
+  HealthValue bpm = 0;
+  if (health_available(HealthMetricHeartRateBPM, now, now)) {
+    bpm = health_service_peek_current_value(HealthMetricHeartRateBPM);
+  }
+  if (bpm > 0) {
+    snprintf(s_hr, sizeof(s_hr), "%d", (int)bpm);
+  } else {
+    snprintf(s_hr, sizeof(s_hr), "--");
+  }
+}
+
+static void set_temp(int32_t temp) {
+  snprintf(s_temp, sizeof(s_temp), "%d°", (int)temp);
+}
+
+static void request_weather(void) {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
+    dict_write_uint8(iter, MESSAGE_KEY_REQUEST_WEATHER, 1);
+    app_message_outbox_send();
+  }
+}
+
+static void inbox_received(DictionaryIterator *iter, void *context) {
+  Tuple *temp = dict_find(iter, MESSAGE_KEY_TEMPERATURE);
+  if (temp) {
+    set_temp(temp->value->int32);
+    persist_write_int(PERSIST_TEMP, temp->value->int32);
+    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+  }
+}
+
+static void health_handler(HealthEventType event, void *context) {
+  update_health();
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+}
+
+static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
+  update_time(tick_time);
+  update_health();
+  if (tick_time->tm_min % 30 == 0) request_weather();
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +556,11 @@ static void main_window_unload(Window *window) {
 // ---------------------------------------------------------------------------
 
 static void init(void) {
+  time_t now = time(NULL);
+  update_time(localtime(&now));
+  update_health();
+  if (persist_exists(PERSIST_TEMP)) set_temp(persist_read_int(PERSIST_TEMP));
+
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {
     .load = main_window_load,
@@ -484,11 +568,17 @@ static void init(void) {
   });
   window_stack_push(s_window, true);
 
+  // The phone sends the weather on startup; the watch asks again every 30 min
+  app_message_register_inbox_received(inbox_received);
+  app_message_open(64, 64);
+  health_service_events_subscribe(health_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 }
 
 static void deinit(void) {
   tick_timer_service_unsubscribe();
+  health_service_events_unsubscribe();
+  app_message_deregister_callbacks();
   if (s_window) {
     window_destroy(s_window);
     s_window = NULL;

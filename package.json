@@ -2,7 +2,9 @@
   "name": "clocktown-clock",
   "author": "vortex",
   "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
   "dependencies": {},
   "pebble": {
@@ -10,8 +12,22 @@
     "uuid": "9ce6a45a-ade5-4c03-96af-7aaf8ae13dbe",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["emery"],
-    "watchapp": { "watchface": true },
-    "resources": { "media": [] }
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "resources": {
+      "media": []
+    },
+    "capabilities": [
+      "location",
+      "health"
+    ],
+    "messageKeys": [
+      "TEMPERATURE",
+      "REQUEST_WEATHER"
+    ]
   }
 }
