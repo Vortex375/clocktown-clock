@@ -1,16 +1,16 @@
 /**
- * Clock Town Clock — static design iteration v2
+ * Clock Town Clock — static design
  *
  * Watchface inspired by the Clock Tower clock from The Legend of Zelda:
  * Majora's Mask, for Pebble Time 2 (emery, 200x228 rectangular display).
  *
- * This is the STATIC design pass: the decorative clock face only, drawn
- * entirely with paint primitives. The time logic (minute ring rotating
+ * This is the STATIC design pass. The time logic (minute ring rotating
  * counter-clockwise, hour disc rotating counter-clockwise, current value
- * always at the top) will be added in a later pass.
+ * always at the top) will be added in a later pass. Everything on the ring
+ * and the disc is placed through local_pt(), which already takes an angle.
  *
  * Design references (workspace res/ folder):
- *  - clocktownclockcolourguide.jpg  (flat/abstract colour reference)
+ *  - clocktownclockcolourguide.jpg  (flat colour guide, traced for the face)
  *  - majoras-mask-...-clock.png     (textured "realistic" reference)
  */
 
@@ -20,31 +20,31 @@
 // Layout
 // ---------------------------------------------------------------------------
 
-#define R_OUTER    98   // outer edge of the minute ring
-#define R_FACE     85   // radius of the face disc (inner edge of the ring)
-#define R_TICK_IN  87   // minute tick marks
-#define R_TICK_OUT 95
-#define R_HOUR     58   // circle of the hour markers (hour disc at 6)
+#define R_OUTER 99   // outer edge of the minute ring
+#define R_FACE  75   // radius of the hour disc (inner edge of the ring)
+
+// The face artwork is traced from the colour guide in "units": face radius
+// = 400 units, x right, y down. 1 unit = 3/16 px, i.e. 3/4 quarter-pixel.
+#define UQ(v) ((v) * 3 / 4)
 
 // ---------------------------------------------------------------------------
-// Palette (from the Clock Town clock colour guide)
+// Palette (nearest 64-colour matches to the colour guide)
 // ---------------------------------------------------------------------------
 
-#define C_BG        GColorFromHEX(0xaa5500)  // screen background (wood)
-#define C_INFO      GColorFromHEX(0xffffaa)  // corner icons + numbers
-#define C_RING      GColorFromHEX(0x3a2a1a)  // minute ring (dark wood)
-#define C_RING_EDGE GColorFromHEX(0x5c452a)  // ring outer edge highlight
-#define C_RIM       GColorFromHEX(0x20150c)  // face rim + shape outlines
-#define C_PEACH     GColorFromHEX(0xf2c49b)  // face base
-#define C_YELLOW    GColorFromHEX(0xeec13a)  // wings + bottom collar
-#define C_RED       GColorFromHEX(0xd43a2a)  // markings
-#define C_WHITE     GColorFromHEX(0xf7f2e7)  // rivets / eye centres
-#define C_TEAL      GColorFromHEX(0x1e8fa8)  // side bands + 3/6/9 markers
-#define C_BLUE      GColorFromHEX(0x8aa6cf)  // side panels
-#define C_GRAY      GColorFromHEX(0x9b9b97)  // muzzle
-#define C_BROWN     GColorFromHEX(0x7c4a26)  // hub + hour disc
-#define C_TAN       GColorFromHEX(0xcaa06c)  // minute ticks / screws
-#define C_DARK      GColorFromHEX(0x1c130b)  // holes
+#define C_BG     GColorWindsorTan     // screen background (wood)
+#define C_INFO   GColorPastelYellow   // corner icons + numbers
+#define C_RING   GColorBulgarianRose  // minute ring (dark wood)
+#define C_MARK   GColorBrass          // minute ring carvings
+#define C_LINE   GColorBlack          // outlines
+#define C_PEACH  GColorRajah
+#define C_YELLOW GColorYellow
+#define C_BLUE   GColorPictonBlue
+#define C_TEAL   GColorCobaltBlue
+#define C_SLATE  GColorDarkGray
+#define C_GRAY   GColorLightGray
+#define C_RED    GColorRed
+#define C_WOOD   GColorWindsorTan     // hub + sun disc
+#define C_WHITE  GColorWhite
 
 // ---------------------------------------------------------------------------
 // State
@@ -53,44 +53,6 @@
 static Window *s_window;
 static Layer *s_canvas_layer;
 static GPoint s_center;
-
-// Wing path: outer arc + zig-zag inner edge (13 points, relative coords)
-static GPoint s_wing_r_points[13];
-static GPoint s_wing_l_points[13];
-static GPathInfo s_wing_r_info = { .num_points = 13, .points = s_wing_r_points };
-static GPathInfo s_wing_l_info = { .num_points = 13, .points = s_wing_l_points };
-static GPath *s_wing_r = NULL;
-static GPath *s_wing_l = NULL;
-
-// Brow flame (6 points, relative coords)
-static GPoint s_brow_points[6] = {
-  { -6, -14 }, { 4, -7 }, { -1, 0 }, { 9, 14 }, { -4, 4 }, { -9, 7 }
-};
-static GPathInfo s_brow_info = { .num_points = 6, .points = s_brow_points };
-static GPath *s_brow_r = NULL;
-static GPath *s_brow_l = NULL;
-
-// Gray muzzle: shield shape with zig-zag top edge (22 points, relative)
-static GPoint s_muzzle_points[22] = {
-  { -42, -2 }, { -36, -14 }, { -28, -8 }, { -22, -20 }, { -14, -10 },
-  { -7, -22 }, { 0, -12 }, { 7, -22 }, { 14, -10 }, { 22, -20 },
-  { 28, -8 }, { 36, -14 }, { 42, -2 },
-  { 44, 16 }, { 40, 34 }, { 30, 46 },
-  { 16, 52 }, { 0, 54 }, { -16, 52 },
-  { -30, 46 }, { -40, 34 }, { -44, 16 }
-};
-static GPathInfo s_muzzle_info = { .num_points = 22, .points = s_muzzle_points };
-static GPath *s_muzzle = NULL;
-
-// Nose teardrop triangle (relative to circle centre)
-static GPoint s_nose_tri_points[3] = { { -5, 2 }, { 5, 2 }, { 0, 16 } };
-static GPathInfo s_nose_tri_info = { .num_points = 3, .points = s_nose_tri_points };
-static GPath *s_nose_tri = NULL;
-
-// 12 o'clock teardrop triangle (relative to circle centre)
-static GPoint s_top_drop_points[3] = { { -5, -2 }, { 5, -2 }, { 0, -8 } };
-static GPathInfo s_top_drop_info = { .num_points = 3, .points = s_top_drop_points };
-static GPath *s_top_drop = NULL;
 
 // Sneaker icon for steps (relative to its top-left corner)
 static GPoint s_shoe_points[9] = {
@@ -104,24 +66,30 @@ static GPath *s_shoe = NULL;
 // Geometry helpers (angle convention: 0 deg = 12 o'clock, clockwise)
 // ---------------------------------------------------------------------------
 
-static GPoint polar_off(int deg, int r) {
-  int32_t a = DEG_TO_TRIGANGLE(deg);
-  return GPoint((r * sin_lookup(a)) / TRIG_MAX_RATIO,
-                -(r * cos_lookup(a)) / TRIG_MAX_RATIO);
+static int rdiv(int32_t v, int32_t d) {
+  return v >= 0 ? (v + d / 2) / d : -((-v + d / 2) / d);
 }
 
-static GPoint polar_c(int deg, int r) {
-  GPoint p = polar_off(deg, r);
-  return GPoint(s_center.x + p.x, s_center.y + p.y);
+// Point at radius r (outward) and tangential offset t (clockwise) around c,
+// for a frame rotated by deg. t and r are in quarter pixels.
+static GPoint local_pt(GPoint c, int deg, int t, int r) {
+  int32_t a = DEG_TO_TRIGANGLE(deg);
+  int32_t s = sin_lookup(a), co = cos_lookup(a);
+  return GPoint(c.x + rdiv(r * s + t * co, 4 * TRIG_MAX_RATIO),
+                c.y + rdiv(-r * co + t * s, 4 * TRIG_MAX_RATIO));
 }
 
 static GPoint polar_around(GPoint c, int deg, int r) {
-  GPoint p = polar_off(deg, r);
-  return GPoint(c.x + p.x, c.y + p.y);
+  return local_pt(c, deg, 0, 4 * r);
+}
+
+// Face unit coordinates (x right, y down) -> screen
+static GPoint face_pt(int x, int y) {
+  return local_pt(s_center, 0, UQ(x), UQ(-y));
 }
 
 static GRect radial_rect(int r) {
-  return GRect(s_center.x - r, s_center.y - r, 2 * r, 2 * r);
+  return GRect(s_center.x - r, s_center.y - r, 2 * r + 1, 2 * r + 1);
 }
 
 static void fill_circle(GContext *ctx, GPoint c, int r, GColor color) {
@@ -135,16 +103,65 @@ static void stroke_circle(GContext *ctx, GPoint c, int r, GColor color, int w) {
   graphics_draw_circle(ctx, c, r);
 }
 
-static void draw_filled_path(GContext *ctx, GPath *path, GPoint at, GColor fill) {
-  gpath_move_to(path, at);
+// Fill (and optionally outline) a polygon given in screen points
+static void draw_poly(GContext *ctx, GPoint *pts, int n, GColor fill, int line_w) {
+  GPathInfo info = { .num_points = n, .points = pts };
+  GPath *p = gpath_create(&info);
   graphics_context_set_fill_color(ctx, fill);
-  gpath_draw_filled(ctx, path);
+  gpath_draw_filled(ctx, p);
+  if (line_w > 0) {
+    graphics_context_set_stroke_color(ctx, C_LINE);
+    graphics_context_set_stroke_width(ctx, line_w);
+    gpath_draw_outline(ctx, p);
+  }
+  gpath_destroy(p);
 }
 
-static void outline_path(GContext *ctx, GPath *path, GColor color, int w) {
-  graphics_context_set_stroke_color(ctx, color);
-  graphics_context_set_stroke_width(ctx, w);
-  gpath_draw_outline(ctx, path);
+#define MAX_PTS 48
+
+// Polygon in face units; mirror = -1 flips it to the right-hand side
+static void face_poly(GContext *ctx, const int16_t (*u)[2], int n, int mirror,
+                      GColor fill) {
+  GPoint pts[MAX_PTS];
+  for (int i = 0; i < n; i++) pts[i] = face_pt(mirror * u[i][0], u[i][1]);
+  draw_poly(ctx, pts, n, fill, 1);
+}
+
+// Left/right pair of a polygon traced on the left half
+static void face_pair(GContext *ctx, const int16_t (*u)[2], int n, GColor fill) {
+  face_poly(ctx, u, n, 1, fill);
+  face_poly(ctx, u, n, -1, fill);
+}
+
+// Symmetric polygon: the left half runs from the axis back to the axis,
+// the right half is its mirror image in reverse order
+static void face_sym(GContext *ctx, const int16_t (*u)[2], int n, GColor fill) {
+  GPoint pts[MAX_PTS];
+  for (int i = 0; i < n; i++) {
+    pts[i] = face_pt(u[i][0], u[i][1]);
+    pts[2 * n - 1 - i] = face_pt(-u[i][0], u[i][1]);
+  }
+  draw_poly(ctx, pts, 2 * n, fill, 1);
+}
+
+// Polygon in a local (t, r) frame, quarter pixels, rotated by deg around c
+static void local_poly(GContext *ctx, GPoint c, int deg, const int16_t (*q)[2],
+                       int n, GColor fill, int line_w) {
+  GPoint pts[MAX_PTS];
+  for (int i = 0; i < n; i++) pts[i] = local_pt(c, deg, q[i][0], q[i][1]);
+  draw_poly(ctx, pts, n, fill, line_w);
+}
+
+// Ellipse centred at (t, r) in the local frame, half axes ht x hr (quarter px)
+static void local_oval(GContext *ctx, GPoint c, int deg, int t, int r,
+                       int ht, int hr, GColor fill, int line_w) {
+  GPoint pts[16];
+  for (int i = 0; i < 16; i++) {
+    int32_t a = TRIG_MAX_ANGLE * i / 16;
+    pts[i] = local_pt(c, deg, t + ht * cos_lookup(a) / TRIG_MAX_RATIO,
+                      r + hr * sin_lookup(a) / TRIG_MAX_RATIO);
+  }
+  draw_poly(ctx, pts, 16, fill, line_w);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,149 +253,188 @@ static void draw_corners(GContext *ctx, GRect bounds) {
   draw_value(ctx, "SAT", xr, h - 41);
   draw_calendar(ctx, GPoint(cxr, h - 11), "17");
 }
-
 // ---------------------------------------------------------------------------
-// Drawing
+// Minute ring: 60 carvings, hour positions marked by shields, the 12 o'clock
+// position by a red omega and 3/6/9 by teal ovals. Shapes are in a local
+// (t, r) frame in quarter pixels, so the whole ring can rotate later.
 // ---------------------------------------------------------------------------
 
-static void canvas_update_proc(Layer *layer, GContext *ctx) {
-  GRect bounds = layer_get_bounds(layer);
+static const int16_t s_shield[9][2] = {
+  { -24, 384 }, { 24, 384 }, { 22, 364 }, { 16, 344 }, { 8, 320 },
+  { 0, 314 }, { -8, 320 }, { -16, 344 }, { -22, 364 }
+};
+static const int16_t s_shield_hole[5][2] = {
+  { -10, 372 }, { 10, 372 }, { 6, 352 }, { 0, 340 }, { -6, 352 }
+};
+static const int16_t s_omega[15][2] = {
+  { 0, 394 }, { 15, 382 }, { 22, 368 }, { 18, 354 }, { 8, 346 }, { 8, 332 },
+  { 22, 324 }, { 22, 314 }, { -22, 314 }, { -22, 324 }, { -8, 332 },
+  { -8, 346 }, { -18, 354 }, { -22, 368 }, { -15, 382 }
+};
 
-  // -- 1. Background --------------------------------------------------------
-  graphics_context_set_fill_color(ctx, C_BG);
-  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-
-  // -- 2. Minute ring -------------------------------------------------------
+static void draw_ring(GContext *ctx, int rot) {
   fill_circle(ctx, s_center, R_OUTER, C_RING);
-  stroke_circle(ctx, s_center, R_OUTER - 1, C_RING_EDGE, 2);
+  stroke_circle(ctx, s_center, R_OUTER, C_LINE, 1);
 
-  // -- 3. Face base ---------------------------------------------------------
-  fill_circle(ctx, s_center, R_FACE, C_PEACH);
-
-  // -- 4. Teal side bands ---------------------------------------------------
-  graphics_context_set_stroke_color(ctx, C_TEAL);
-  graphics_context_set_stroke_width(ctx, 6);
-  graphics_draw_arc(ctx, radial_rect(79), GOvalScaleModeFitCircle,
-                    DEG_TO_TRIGANGLE(65), DEG_TO_TRIGANGLE(115));
-  graphics_draw_arc(ctx, radial_rect(79), GOvalScaleModeFitCircle,
-                    DEG_TO_TRIGANGLE(245), DEG_TO_TRIGANGLE(295));
-
-  // -- 5. Blue side panels --------------------------------------------------
-  GPoint panel_r = GPoint(s_center.x + 48, s_center.y);
-  GPoint panel_l = GPoint(s_center.x - 48, s_center.y);
-  fill_circle(ctx, panel_r, 24, C_BLUE);
-  fill_circle(ctx, panel_l, 24, C_BLUE);
-  stroke_circle(ctx, panel_r, 24, C_RIM, 2);
-  stroke_circle(ctx, panel_l, 24, C_RIM, 2);
-
-  // -- 6. Gray muzzle (zig-zag top shield) ----------------------------------
-  draw_filled_path(ctx, s_muzzle, s_center, C_GRAY);
-  outline_path(ctx, s_muzzle, C_RIM, 2);
-
-  // -- 7. Yellow wings ------------------------------------------------------
-  graphics_context_set_fill_color(ctx, C_YELLOW);
-  gpath_move_to(s_wing_r, s_center);
-  gpath_draw_filled(ctx, s_wing_r);
-  gpath_move_to(s_wing_l, s_center);
-  gpath_draw_filled(ctx, s_wing_l);
-  outline_path(ctx, s_wing_r, C_RIM, 2);
-  outline_path(ctx, s_wing_l, C_RIM, 2);
-
-  // -- 8. Red markings: brows, eye, nose ------------------------------------
-  draw_filled_path(ctx, s_brow_r, GPoint(s_center.x + 27, s_center.y - 39), C_RED);
-  draw_filled_path(ctx, s_brow_l, GPoint(s_center.x - 27, s_center.y - 39), C_RED);
-  outline_path(ctx, s_brow_r, C_RIM, 2);
-  outline_path(ctx, s_brow_l, C_RIM, 2);
-
-  GPoint nose = GPoint(s_center.x, s_center.y - 38);
-  fill_circle(ctx, nose, 7, C_RED);
-  draw_filled_path(ctx, s_nose_tri, nose, C_RED);
-
-  // -- 9. Yellow bottom collar (annular sector, carved with gray) -----------
-  graphics_context_set_fill_color(ctx, C_YELLOW);
-  graphics_fill_radial(ctx, radial_rect(76), GOvalScaleModeFitCircle, 0,
-                       DEG_TO_TRIGANGLE(128), DEG_TO_TRIGANGLE(232));
-  graphics_context_set_fill_color(ctx, C_GRAY);
-  graphics_fill_radial(ctx, radial_rect(40), GOvalScaleModeFitCircle, 0,
-                       DEG_TO_TRIGANGLE(123), DEG_TO_TRIGANGLE(237));
-  // Collar outline: outer arc, inner arc, two end caps
-  graphics_context_set_stroke_color(ctx, C_RIM);
-  graphics_context_set_stroke_width(ctx, 2);
-  graphics_draw_arc(ctx, radial_rect(76), GOvalScaleModeFitCircle,
-                    DEG_TO_TRIGANGLE(128), DEG_TO_TRIGANGLE(232));
-  graphics_draw_arc(ctx, radial_rect(40), GOvalScaleModeFitCircle,
-                    DEG_TO_TRIGANGLE(128), DEG_TO_TRIGANGLE(232));
-  graphics_draw_line(ctx, polar_c(128, 40), polar_c(128, 76));
-  graphics_draw_line(ctx, polar_c(232, 40), polar_c(232, 76));
-
-  // -- 10. Center hub -------------------------------------------------------
-  fill_circle(ctx, s_center, 15, C_BROWN);
-  fill_circle(ctx, s_center, 10, C_TEAL);
-  fill_circle(ctx, s_center, 5, C_TAN);
-  stroke_circle(ctx, s_center, 15, C_RIM, 2);
-
-  // -- 11. Hour disc (bottom) -----------------------------------------------
-  GPoint disc = polar_c(180, R_HOUR);
-  fill_circle(ctx, disc, 24, C_BROWN);
-  stroke_circle(ctx, disc, 24, C_RIM, 2);
-  fill_circle(ctx, disc, 8, C_RED);
-  // 12 hour dots arranged in a circle around the disc, each with a black outline
-  for (int i = 0; i < 12; i++) {
-    GPoint p = polar_around(disc, -90 + i * 30, 16);
-    fill_circle(ctx, p, 3, C_RED);
-    stroke_circle(ctx, p, 3, GColorBlack, 2);
-  }
-
-  // -- 12. Hour markers: 12 positions on one circle (0 deg = 12 o'clock).
-  // 12/3/9 are red rings, 6 is the hour disc, the rest are white dots.
-  for (int i = 0; i < 12; i++) {
-    if (i == 6) continue;
-    GPoint p = polar_c(i * 30, R_HOUR);
-    if (i % 3 == 0) {
-      int r = (i == 0) ? 11 : 9;
-      fill_circle(ctx, p, r, C_RED);
-      fill_circle(ctx, p, 4, C_WHITE);
-      stroke_circle(ctx, p, r, GColorBlack, 2);
-      stroke_circle(ctx, p, 4, GColorBlack, 1);
+  for (int m = 0; m < 60; m++) {
+    int a = rot + m * 6;
+    if (m == 0) {
+      local_poly(ctx, s_center, a, s_omega, 15, C_RED, 1);
+      local_oval(ctx, s_center, a, 0, 366, 8, 11, C_RING, 0);
+    } else if (m % 15 == 0) {
+      local_oval(ctx, s_center, a, 0, 350, 18, 30, C_TEAL, 0);
+      local_oval(ctx, s_center, a, 0, 350, 7, 16, C_RING, 0);
+    } else if (m % 5 == 0) {
+      local_poly(ctx, s_center, a, s_shield, 9, C_MARK, 0);
+      local_poly(ctx, s_center, a, s_shield_hole, 5, C_RING, 0);
     } else {
+      // Tally bar; every other one is shorter with a dot beyond it
+      bool dot = (m % 5 == 2 || m % 5 == 4);
+      graphics_context_set_stroke_color(ctx, C_MARK);
+      graphics_context_set_stroke_width(ctx, 3);
+      graphics_draw_line(ctx, polar_around(s_center, a, 80),
+                         polar_around(s_center, a, dot ? 87 : 91));
+      if (dot) fill_circle(ctx, polar_around(s_center, a, 93), 1, C_MARK);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hour disc: traced from the colour guide (face units, see UQ)
+// ---------------------------------------------------------------------------
+
+// Dark profile at the lower left rim (mirrored for the right)
+static const int16_t s_slate[11][2] = {
+  { -396, 56 }, { -380, 124 }, { -353, 188 }, { -315, 246 }, { -300, 200 },
+  { -292, 160 }, { -305, 120 }, { -288, 90 }, { -300, 55 }, { -340, 35 },
+  { -380, 40 }
+};
+// Yellow band along the bottom rim (left half, axis to axis)
+static const int16_t s_bottom[10][2] = {
+  { 0, 250 }, { -120, 305 }, { -175, 295 }, { -235, 250 }, { -275, 210 },
+  { -315, 246 }, { -257, 306 }, { -169, 363 }, { -69, 394 }, { 0, 400 }
+};
+// Gray band: spikes behind the feathers, profiles at the sides
+static const int16_t s_gray[20][2] = {
+  { 0, -40 }, { -60, -40 }, { -110, -60 }, { -150, -70 }, { -180, -110 },
+  { -195, -50 }, { -225, -120 }, { -235, -45 }, { -265, -100 }, { -262, -20 },
+  { -248, 8 }, { -215, 30 }, { -212, 55 }, { -200, 72 }, { -196, 92 },
+  { -180, 115 }, { -130, 100 }, { -90, 82 }, { -60, 120 }, { 0, 140 }
+};
+// Peach column between the wings, from the eye down to the hub
+static const int16_t s_column[5][2] = {
+  { 0, -300 }, { -90, -280 }, { -150, -80 }, { -100, -15 }, { 0, -15 }
+};
+// Upper wing with five feathers pointing down
+static const int16_t s_wing[21][2] = {
+  { -70, -378 }, { -140, -360 }, { -200, -335 }, { -250, -300 }, { -285, -250 },
+  { -305, -200 }, { -320, -150 }, { -325, -105 }, { -300, -150 }, { -280, -70 },
+  { -262, -140 }, { -240, -55 }, { -222, -130 }, { -195, -50 }, { -183, -135 },
+  { -150, -75 }, { -140, -175 }, { -100, -235 }, { -65, -250 }, { -95, -290 },
+  { -80, -340 }
+};
+// Lower wing with three feathers pointing up and out
+static const int16_t s_low_wing[10][2] = {
+  { -35, 128 }, { -90, 82 }, { -195, 148 }, { -140, 150 }, { -200, 205 },
+  { -138, 190 }, { -180, 245 }, { -120, 270 }, { -100, 200 }, { -60, 150 }
+};
+// Red flame below each wing
+static const int16_t s_claw[12][2] = {
+  { -82, -202 }, { -108, -178 }, { -124, -148 }, { -118, -118 }, { -100, -102 },
+  { -80, -98 }, { -70, -55 }, { -60, -100 }, { -52, -135 }, { -70, -150 },
+  { -88, -158 }, { -85, -180 }
+};
+// Red needle pointing out from the hub at 9 (mirrored for 3)
+static const int16_t s_needle[4][2] = {
+  { -255, 0 }, { -98, -34 }, { -110, 0 }, { -98, 30 }
+};
+// Red arrowhead below the top eye
+static const int16_t s_arrow[5][2] = {
+  { 0, -262 }, { -18, -240 }, { -72, -215 }, { -30, -195 }, { 0, -130 }
+};
+
+static void draw_sun_disc(GContext *ctx, GPoint c) {
+  fill_circle(ctx, c, 22, C_WOOD);
+  stroke_circle(ctx, c, 22, C_LINE, 1);
+  for (int i = 0; i < 8; i++) {
+    // Squiggle between two dots
+    int a = 22 + i * 45;
+    GPoint s[4] = { local_pt(c, a, 0, 44), local_pt(c, a, 4, 50),
+                    local_pt(c, a, -4, 56), local_pt(c, a, 0, 62) };
+    graphics_context_set_stroke_color(ctx, C_RED);
+    graphics_context_set_stroke_width(ctx, 2);
+    for (int k = 0; k < 3; k++) graphics_draw_line(ctx, s[k], s[k + 1]);
+    fill_circle(ctx, polar_around(c, i * 45, 17), 2, C_RED);
+  }
+  fill_circle(ctx, c, 8, C_RED);
+  stroke_circle(ctx, c, 8, C_LINE, 1);
+}
+
+static void draw_face(GContext *ctx) {
+  GRect face = radial_rect(R_FACE);
+
+  // Background zones: blue sides, peach top, teal rim bands
+  fill_circle(ctx, s_center, R_FACE, C_BLUE);
+  graphics_context_set_fill_color(ctx, C_PEACH);
+  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, R_FACE,
+                       DEG_TO_TRIGANGLE(308), DEG_TO_TRIGANGLE(360));
+  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, R_FACE,
+                       DEG_TO_TRIGANGLE(0), DEG_TO_TRIGANGLE(52));
+  graphics_context_set_fill_color(ctx, C_TEAL);
+  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, 10,
+                       DEG_TO_TRIGANGLE(255), DEG_TO_TRIGANGLE(318));
+  graphics_fill_radial(ctx, face, GOvalScaleModeFitCircle, 10,
+                       DEG_TO_TRIGANGLE(42), DEG_TO_TRIGANGLE(105));
+  face_pair(ctx, s_slate, 11, C_SLATE);
+  face_sym(ctx, s_bottom, 10, C_YELLOW);
+
+  // Figures, back to front
+  face_sym(ctx, s_gray, 20, C_GRAY);
+  face_sym(ctx, s_column, 5, C_PEACH);
+  face_pair(ctx, s_low_wing, 10, C_YELLOW);
+  face_pair(ctx, s_wing, 21, C_YELLOW);
+  face_pair(ctx, s_claw, 12, C_RED);
+  face_pair(ctx, s_needle, 4, C_RED);
+  face_sym(ctx, s_arrow, 5, C_RED);
+
+  // Hub
+  fill_circle(ctx, s_center, 14, C_WOOD);
+  stroke_circle(ctx, s_center, 14, C_LINE, 1);
+  fill_circle(ctx, s_center, 10, C_TEAL);
+  stroke_circle(ctx, s_center, 10, C_LINE, 1);
+  fill_circle(ctx, s_center, 7, C_WOOD);
+  stroke_circle(ctx, s_center, 7, C_LINE, 1);
+
+  // Hour markers on one circle: eye at 12, red rings at 3/9, sun disc at 6,
+  // white dots elsewhere
+  local_oval(ctx, s_center, 0, 0, UQ(315), UQ(55), UQ(62), C_RED, 1);
+  local_oval(ctx, s_center, 0, 0, UQ(315), UQ(24), UQ(32), C_WHITE, 1);
+  for (int i = 1; i < 12; i++) {
+    int a = i * 30;
+    if (i == 6) {
+      draw_sun_disc(ctx, polar_around(s_center, a, 49));
+    } else if (i % 3 == 0) {
+      GPoint p = polar_around(s_center, a, 62);
+      fill_circle(ctx, p, 10, C_RED);
+      stroke_circle(ctx, p, 10, C_LINE, 2);
       fill_circle(ctx, p, 5, C_WHITE);
-      stroke_circle(ctx, p, 5, GColorBlack, 2);
+      stroke_circle(ctx, p, 5, C_LINE, 1);
+    } else {
+      GPoint p = polar_around(s_center, a, 58);
+      fill_circle(ctx, p, 5, C_WHITE);
+      stroke_circle(ctx, p, 5, C_LINE, 2);
     }
   }
 
-  // -- 13. Face rim ----------------------------------------------------------
-  stroke_circle(ctx, s_center, R_FACE - 1, C_RIM, 2);
+  stroke_circle(ctx, s_center, R_FACE, C_LINE, 2);
+}
 
-  // -- 14. Minute ticks ------------------------------------------------------
-  graphics_context_set_stroke_color(ctx, C_TAN);
-  graphics_context_set_stroke_width(ctx, 3);
-  for (int i = 0; i < 60; i++) {
-    graphics_draw_line(ctx, polar_c(i * 6, R_TICK_IN), polar_c(i * 6, R_TICK_OUT));
-  }
-
-  // -- 15. Screws at the diagonals ------------------------------------------
-  static const int screw_angles[4] = { 45, 135, 225, 315 };
-  for (int i = 0; i < 4; i++) {
-    GPoint p = polar_c(screw_angles[i], 91);
-    fill_circle(ctx, p, 3, C_TAN);
-    fill_circle(ctx, p, 1, C_DARK);
-  }
-
-  // -- 16. Special ring markers ----------------------------------------------
-  // Teal ovals at 3, 6 and 9 o'clock
-  static const int oval_angles[3] = { 90, 180, 270 };
-  for (int i = 0; i < 3; i++) {
-    GPoint p = polar_c(oval_angles[i], 91);
-    fill_circle(ctx, p, 6, C_TEAL);
-    fill_circle(ctx, p, 3, C_DARK);
-  }
-  // Red teardrop at 12 o'clock
-  GPoint top = polar_c(0, 90);
-  fill_circle(ctx, top, 5, C_RED);
-  draw_filled_path(ctx, s_top_drop, top, C_RED);
-  fill_circle(ctx, top, 2, C_DARK);
-
-  // -- 17. Corner metrics (static placeholder values) ------------------------
+static void canvas_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, C_BG);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+  draw_ring(ctx, 0);
+  draw_face(ctx);
   draw_corners(ctx, bounds);
 }
 
@@ -407,34 +463,11 @@ static void main_window_load(Window *window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  // Build the wing polygons (outer arc + zig-zag inner edge)
-  static const int wing_angles[13] = { 10, 25, 40, 55, 70, 80, 70, 62, 52, 44, 34, 26, 16 };
-  static const int wing_radii[13]  = { 72, 72, 72, 72, 72, 72, 48, 30, 46, 28, 46, 30, 48 };
-  for (int i = 0; i < 13; i++) {
-    GPoint p = polar_off(wing_angles[i], wing_radii[i]);
-    s_wing_r_points[i] = p;
-    s_wing_l_points[i] = GPoint(-p.x, p.y);
-  }
-
-  s_wing_r = gpath_create(&s_wing_r_info);
-  s_wing_l = gpath_create(&s_wing_l_info);
-  s_brow_r = gpath_create(&s_brow_info);
-  s_brow_l = gpath_create(&s_brow_info);
-  s_muzzle = gpath_create(&s_muzzle_info);
-  s_nose_tri = gpath_create(&s_nose_tri_info);
-  s_top_drop = gpath_create(&s_top_drop_info);
   s_shoe = gpath_create(&s_shoe_info);
 }
 
 static void main_window_unload(Window *window) {
   (void)window;
-  if (s_wing_r) { gpath_destroy(s_wing_r); s_wing_r = NULL; }
-  if (s_wing_l) { gpath_destroy(s_wing_l); s_wing_l = NULL; }
-  if (s_brow_r) { gpath_destroy(s_brow_r); s_brow_r = NULL; }
-  if (s_brow_l) { gpath_destroy(s_brow_l); s_brow_l = NULL; }
-  if (s_muzzle) { gpath_destroy(s_muzzle); s_muzzle = NULL; }
-  if (s_nose_tri) { gpath_destroy(s_nose_tri); s_nose_tri = NULL; }
-  if (s_top_drop) { gpath_destroy(s_top_drop); s_top_drop = NULL; }
   if (s_shoe) { gpath_destroy(s_shoe); s_shoe = NULL; }
   if (s_canvas_layer) { layer_destroy(s_canvas_layer); s_canvas_layer = NULL; }
 }
@@ -444,8 +477,6 @@ static void main_window_unload(Window *window) {
 // ---------------------------------------------------------------------------
 
 static void init(void) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "clocktown-clock static design v4 (12 hour dots)");
-
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {
     .load = main_window_load,
