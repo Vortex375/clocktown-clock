@@ -57,7 +57,10 @@ static Window *s_window;
 static Layer *s_canvas_layer;
 static GPoint s_center;
 static int s_face_rot;   // hour disc rotation in degrees (counter-clockwise < 0)
-static int s_ring_rot;   // minute ring rotation
+static int s_ring_rot;     // minute ring rotation as drawn
+static int s_ring_target;  // rotation for the current minute
+static AppTimer *s_wiggle_timer;
+static int s_wiggle_step;
 
 // Corner texts
 static char s_steps[12] = "--";
@@ -65,6 +68,7 @@ static char s_temp[8] = "--\u00b0";
 static char s_hr[12] = "--";
 static char s_wday[8] = "";
 static char s_mday[4] = "";
+static char s_time[6] = "";
 
 // Sun is shown between sunrise and sunset (minutes after local midnight),
 // the moon otherwise. Defaults until the phone sends the real times.
@@ -488,6 +492,14 @@ static void draw_pointer(GContext *ctx) {
   draw_poly(ctx, tri, 3, C_WHITE, 0);
 }
 
+// Current time as text below the ring, opposite the pointer
+static void draw_time_text(GContext *ctx) {
+  graphics_context_set_text_color(ctx, C_INFO);
+  graphics_draw_text(ctx, s_time, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+                     GRect(s_center.x - 25, s_center.y + R_OUTER - 3, 50, 16),
+                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   graphics_context_set_fill_color(ctx, C_BG);
@@ -495,6 +507,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   draw_ring(ctx, s_ring_rot);
   draw_face(ctx);
   draw_pointer(ctx);
+  draw_time_text(ctx);
   draw_corners(ctx, bounds);
 }
 
@@ -508,10 +521,11 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 
 static void update_time(struct tm *t) {
   // Both turn counter-clockwise so the current value sits at the top
-  s_ring_rot = -t->tm_min * 6;
+  s_ring_target = -t->tm_min * 6;
   s_face_rot = -(t->tm_hour % 12) * 30;
   int now = t->tm_hour * 60 + t->tm_min;
   s_night = now < s_sunrise || now >= s_sunset;
+  strftime(s_time, sizeof(s_time), "%H:%M", t);
   strftime(s_wday, sizeof(s_wday), "%a", t);
   for (char *c = s_wday; *c; c++) {
     if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
@@ -581,10 +595,37 @@ static void health_handler(HealthEventType event, void *context) {
   if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }
 
+// Minute change: the ring rocks back and forth like a mechanical escapement,
+// then snaps to the new minute. Offsets are degrees from the old position
+// (positive = backwards), one frame each.
+#define WIGGLE_FRAME_MS 40
+static const int8_t s_wiggle[] = { 1, -1, 1, -1 };
+
+static void wiggle_cb(void *data) {
+  int base = s_ring_rot - (s_wiggle_step ? s_wiggle[s_wiggle_step - 1] : 0);
+  if (s_wiggle_step < (int)sizeof(s_wiggle)) {
+    s_ring_rot = base + s_wiggle[s_wiggle_step++];
+    s_wiggle_timer = app_timer_register(WIGGLE_FRAME_MS, wiggle_cb, NULL);
+  } else {
+    s_ring_rot = s_ring_target;
+    s_wiggle_timer = NULL;
+  }
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
+}
+
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   update_time(tick_time);
   update_health();
   if (tick_time->tm_min % 30 == 0) request_weather();
+  if (s_wiggle_timer) {
+    // Still wiggling from a previous tick (shouldn't happen): just snap
+    app_timer_cancel(s_wiggle_timer);
+    s_wiggle_timer = NULL;
+    s_ring_rot = s_ring_target;
+  } else {
+    s_wiggle_step = 0;
+    wiggle_cb(NULL);
+  }
   if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }
 
@@ -622,6 +663,7 @@ static void init(void) {
   }
   time_t now = time(NULL);
   update_time(localtime(&now));
+  s_ring_rot = s_ring_target;
   update_health();
 
   s_window = window_create();
@@ -639,6 +681,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  if (s_wiggle_timer) app_timer_cancel(s_wiggle_timer);
   tick_timer_service_unsubscribe();
   health_service_events_unsubscribe();
   app_message_deregister_callbacks();
