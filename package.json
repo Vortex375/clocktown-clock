@@ -19,7 +19,53 @@
       "watchface": true
     },
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "WEATHER_SUN",
+          "file": "images/weather_timeline_sun.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_PARTLY_CLOUDY",
+          "file": "images/weather_partly_cloudy.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_CLOUDY",
+          "file": "images/weather_cloudy_day.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_LIGHT_RAIN",
+          "file": "images/weather_light_rain.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_HEAVY_RAIN",
+          "file": "images/weather_heavy_rain.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_LIGHT_SNOW",
+          "file": "images/weather_light_snow.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_HEAVY_SNOW",
+          "file": "images/weather_heavy_snow.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_RAIN_SNOW",
+          "file": "images/weather_raining_and_snowing.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "WEATHER_GENERIC",
+          "file": "images/weather_timeline_weather.png"
+        }
+      ]
     },
     "capabilities": [
       "location",
@@ -27,6 +73,7 @@
     ],
     "messageKeys": [
       "TEMPERATURE",
+      "WEATHER_CODE",
       "SUNRISE",
       "SUNSET",
       "REQUEST_WEATHER"

@@ -70,6 +70,10 @@ static char s_wday[8] = "";
 static char s_mday[4] = "";
 static char s_time[6] = "";
 
+// Weather icon (official Pebble timeline icons, see tools/weather_icons.py)
+static GBitmap *s_weather_bmp;
+static uint32_t s_weather_res;
+
 // Sun is shown between sunrise and sunset (minutes after local midnight),
 // the moon otherwise. Defaults until the phone sends the real times.
 static int s_sunrise = 6 * 60;
@@ -210,30 +214,6 @@ static void draw_heart(GContext *ctx, GPoint c) {
   gpath_destroy(p);
 }
 
-static void draw_cloud_sun(GContext *ctx, GPoint c) {
-  // Sun with short rays, peeking out behind the cloud
-  GPoint sun = GPoint(c.x + 3, c.y - 2);
-  graphics_context_set_stroke_color(ctx, C_INFO);
-  graphics_context_set_stroke_width(ctx, 1);
-  for (int a = 0; a < 360; a += 45) {
-    graphics_draw_line(ctx, polar_around(sun, a, 5), polar_around(sun, a, 7));
-  }
-  fill_circle(ctx, sun, 3, C_INFO);
-  // Cloud: bg-coloured halo first so it separates from the sun
-  static const int puffs[3][3] = { { -4, 2, 4 }, { 1, -1, 5 }, { 6, 2, 3 } };
-  for (int pass = 0; pass < 2; pass++) {
-    GColor col = pass ? C_INFO : C_BG;
-    int grow = pass ? 0 : 1;
-    graphics_context_set_fill_color(ctx, col);
-    for (int i = 0; i < 3; i++) {
-      graphics_fill_circle(ctx, GPoint(c.x + puffs[i][0], c.y + puffs[i][1]),
-                           puffs[i][2] + grow);
-    }
-    graphics_fill_rect(ctx, GRect(c.x - 4 - grow, c.y + 2, 10 + 2 * grow, 4 + grow),
-                       0, GCornerNone);
-  }
-}
-
 static void draw_calendar(GContext *ctx, GPoint c, const char *day) {
   GRect r = GRect(c.x - 11, c.y - 9, 22, 18);
   graphics_context_set_fill_color(ctx, C_INFO);
@@ -264,7 +244,10 @@ static void draw_corners(GContext *ctx, GRect bounds) {
   draw_value(ctx, s_steps, xl, 12);
 
   // Top-right: current weather
-  draw_cloud_sun(ctx, GPoint(cxr - 2, 11));
+  if (s_weather_bmp) {
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(ctx, s_weather_bmp, GRect(cxr - 8, 1, 16, 16));
+  }
   draw_value(ctx, s_temp, xr, 14);
 
   // Bottom-left: heart rate
@@ -518,6 +501,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 #define PERSIST_TEMP    1  // last temperature received from the phone
 #define PERSIST_SUNRISE 2  // minutes after midnight
 #define PERSIST_SUNSET  3
+#define PERSIST_WEATHER 4  // WMO weather code
 
 static void update_time(struct tm *t) {
   // Both turn counter-clockwise so the current value sits at the top
@@ -559,6 +543,31 @@ static void update_health(void) {
   }
 }
 
+// WMO weather code (as reported by Open-Meteo) -> icon resource
+static uint32_t weather_icon(int code) {
+  switch (code) {
+    case 0: case 1:                     return RESOURCE_ID_WEATHER_SUN;
+    case 2:                             return RESOURCE_ID_WEATHER_PARTLY_CLOUDY;
+    case 3: case 45: case 48:           return RESOURCE_ID_WEATHER_CLOUDY;      // + fog
+    case 51: case 53: case 55: case 56: case 57:                                 // drizzle
+    case 61: case 80:                   return RESOURCE_ID_WEATHER_LIGHT_RAIN;
+    case 63: case 65: case 81: case 82:
+    case 95: case 96: case 99:          return RESOURCE_ID_WEATHER_HEAVY_RAIN;  // + storm
+    case 66: case 67:                   return RESOURCE_ID_WEATHER_RAIN_SNOW;   // freezing rain
+    case 71: case 77: case 85:          return RESOURCE_ID_WEATHER_LIGHT_SNOW;
+    case 73: case 75: case 86:          return RESOURCE_ID_WEATHER_HEAVY_SNOW;
+    default:                            return RESOURCE_ID_WEATHER_GENERIC;
+  }
+}
+
+static void set_weather_code(int code) {
+  uint32_t res = weather_icon(code);
+  if (res == s_weather_res && s_weather_bmp) return;
+  if (s_weather_bmp) gbitmap_destroy(s_weather_bmp);
+  s_weather_bmp = gbitmap_create_with_resource(res);
+  s_weather_res = res;
+}
+
 static void set_temp(int32_t temp) {
   snprintf(s_temp, sizeof(s_temp), "%d°", (int)temp);
 }
@@ -576,6 +585,11 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   if (temp) {
     set_temp(temp->value->int32);
     persist_write_int(PERSIST_TEMP, temp->value->int32);
+  }
+  Tuple *code = dict_find(iter, MESSAGE_KEY_WEATHER_CODE);
+  if (code) {
+    set_weather_code(code->value->int32);
+    persist_write_int(PERSIST_WEATHER, code->value->int32);
   }
   Tuple *rise = dict_find(iter, MESSAGE_KEY_SUNRISE);
   Tuple *set = dict_find(iter, MESSAGE_KEY_SUNSET);
@@ -657,6 +671,7 @@ static void main_window_unload(Window *window) {
 
 static void init(void) {
   if (persist_exists(PERSIST_TEMP)) set_temp(persist_read_int(PERSIST_TEMP));
+  set_weather_code(persist_exists(PERSIST_WEATHER) ? persist_read_int(PERSIST_WEATHER) : -1);
   if (persist_exists(PERSIST_SUNSET)) {
     s_sunrise = persist_read_int(PERSIST_SUNRISE);
     s_sunset = persist_read_int(PERSIST_SUNSET);
@@ -681,6 +696,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  if (s_weather_bmp) gbitmap_destroy(s_weather_bmp);
   if (s_wiggle_timer) app_timer_cancel(s_wiggle_timer);
   tick_timer_service_unsubscribe();
   health_service_events_unsubscribe();

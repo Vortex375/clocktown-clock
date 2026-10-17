@@ -1,4 +1,4 @@
-// Fetches the current temperature and today's sunrise/sunset from Open-Meteo
+// Fetches the current temperature, weather code and today's sunrise/sunset from Open-Meteo
 // (no API key needed) and sends them to the watch. Runs on startup and
 // whenever the watch asks.
 
@@ -11,16 +11,17 @@ function sendWeather(pos) {
   var url = 'https://api.open-meteo.com/v1/forecast?' +
       'latitude=' + pos.coords.latitude +
       '&longitude=' + pos.coords.longitude +
-      '&current=temperature_2m&daily=sunrise,sunset&timezone=auto&forecast_days=1';
+      '&current=temperature_2m,weather_code&daily=sunrise,sunset&timezone=auto&forecast_days=1';
   var xhr = new XMLHttpRequest();
   xhr.onload = function () {
     var json = JSON.parse(this.responseText);
     Pebble.sendAppMessage({
       TEMPERATURE: Math.round(json.current.temperature_2m),
+      WEATHER_CODE: json.current.weather_code,
       SUNRISE: minutesOfDay(json.daily.sunrise[0]),
       SUNSET: minutesOfDay(json.daily.sunset[0])
     },
-      function () { console.log('Weather sent, sun ' + json.daily.sunrise[0] + ' - ' + json.daily.sunset[0]); },
+      function () { console.log('Weather sent, code ' + json.current.weather_code + ', sun ' + json.daily.sunrise[0] + ' - ' + json.daily.sunset[0]); },
       function () { console.log('Sending weather failed'); });
   };
   xhr.open('GET', url);
