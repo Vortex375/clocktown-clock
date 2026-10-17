@@ -475,12 +475,25 @@ static void draw_pointer(GContext *ctx) {
   draw_poly(ctx, tri, 3, C_WHITE, 0);
 }
 
-// Current time as text below the ring, opposite the pointer
+// Current time in the centre of the disc: white digits with a 2 px black
+// outline. LECO 32 ink is 84x22 px for "20:08", so with the outline it stays
+// inside the hour markers (inner edge 52 px from the centre).
 static void draw_time_text(GContext *ctx) {
-  graphics_context_set_text_color(ctx, C_INFO);
-  graphics_draw_text(ctx, s_time, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(s_center.x - 25, s_center.y + R_OUTER - 1, 50, 16),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  GFont font = fonts_get_system_font(FONT_KEY_LECO_32_BOLD_NUMBERS);
+  GRect box = GRect(s_center.x - 60, s_center.y - 21, 120, 34);  // ink centred
+  graphics_context_set_text_color(ctx, C_LINE);
+  for (int dx = -2; dx <= 2; dx++) {
+    for (int dy = -2; dy <= 2; dy++) {
+      if (dx || dy) {
+        graphics_draw_text(ctx, s_time, font, GRect(box.origin.x + dx, box.origin.y + dy,
+                           box.size.w, box.size.h), GTextOverflowModeFill,
+                           GTextAlignmentCenter, NULL);
+      }
+    }
+  }
+  graphics_context_set_text_color(ctx, C_WHITE);
+  graphics_draw_text(ctx, s_time, font, box, GTextOverflowModeFill,
+                     GTextAlignmentCenter, NULL);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
