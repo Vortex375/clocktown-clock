@@ -30,14 +30,16 @@
 // Palette (nearest 64-colour matches to the colour guide)
 // ---------------------------------------------------------------------------
 
-#define C_BG     GColorWindsorTan     // screen background (wood)
-#define C_INFO   GColorPastelYellow   // corner icons + numbers
-#define C_RING   GColorBulgarianRose  // minute ring (dark wood)
-#define C_MARK   GColorBrass          // minute ring carvings
+#define C_BG     GColorBulgarianRose  // screen background (dark wood)
+#define C_INFO   GColorWhite          // corner icons + numbers
+#define C_RING   GColorBlack          // minute ring
+#define C_FRAME  GColorWindsorTan     // wooden frame around the ring
+#define C_MARK   GColorPastelYellow   // minute ring carvings
+#define C_OVAL   GColorVividCerulean  // 3/6/9 ovals on the ring
 #define C_LINE   GColorBlack          // outlines
 #define C_PEACH  GColorRajah
 #define C_YELLOW GColorYellow
-#define C_BLUE   GColorPictonBlue
+#define C_BLUE   GColorVeryLightBlue
 #define C_TEAL   GColorCobaltBlue
 #define C_SLATE  GColorDarkGray
 #define C_GRAY   GColorLightGray
@@ -282,7 +284,7 @@ static const int16_t s_omega[15][2] = {
 
 static void draw_ring(GContext *ctx, int rot) {
   fill_circle(ctx, s_center, R_OUTER, C_RING);
-  stroke_circle(ctx, s_center, R_OUTER, C_LINE, 1);
+  stroke_circle(ctx, s_center, R_OUTER - 1, C_FRAME, 2);
 
   for (int m = 0; m < 60; m++) {
     int a = rot + m * 6;
@@ -290,7 +292,7 @@ static void draw_ring(GContext *ctx, int rot) {
       local_poly(ctx, s_center, a, s_omega, 15, C_RED, 1);
       local_oval(ctx, s_center, a, 0, 366, 8, 11, C_RING, 0);
     } else if (m % 15 == 0) {
-      local_oval(ctx, s_center, a, 0, 350, 18, 30, C_TEAL, 0);
+      local_oval(ctx, s_center, a, 0, 350, 18, 30, C_OVAL, 0);
       local_oval(ctx, s_center, a, 0, 350, 7, 16, C_RING, 0);
     } else if (m % 5 == 0) {
       local_poly(ctx, s_center, a, s_shield, 9, C_MARK, 0);
@@ -442,6 +444,23 @@ static void draw_face(GContext *ctx) {
   }
 
   stroke_circle(ctx, s_center, R_FACE, C_LINE, 2);
+
+  // Halo around the hour marker at the top (eye, ring, dot or sun disc)
+  int h = ((-rot / 30) % 12 + 12) % 12;
+  static const int8_t halo_y[4] = { 59, 62, 58, 49 };   // marker centre radius
+  static const int8_t halo_r[4] = { 15, 13, 8, 25 };    // halo radius
+  int kind = (h == 0) ? 0 : (h == 6) ? 3 : (h % 3 == 0) ? 1 : 2;
+  GPoint top = GPoint(s_center.x, s_center.y - halo_y[kind]);
+  stroke_circle(ctx, top, halo_r[kind], C_LINE, 4);
+  stroke_circle(ctx, top, halo_r[kind], C_WHITE, 2);
+}
+
+// Pointer above the ring marking the 12 o'clock reading position
+static void draw_pointer(GContext *ctx) {
+  int y = s_center.y - R_OUTER;
+  GPoint tri[3] = { { s_center.x - 7, y - 12 }, { s_center.x + 7, y - 12 },
+                    { s_center.x, y - 1 } };
+  draw_poly(ctx, tri, 3, C_WHITE, 0);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -450,6 +469,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
   draw_ring(ctx, s_ring_rot);
   draw_face(ctx);
+  draw_pointer(ctx);
   draw_corners(ctx, bounds);
 }
 
