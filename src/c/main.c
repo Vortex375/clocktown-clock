@@ -496,7 +496,7 @@ static void draw_pointer(GContext *ctx) {
 static void draw_time_text(GContext *ctx) {
   graphics_context_set_text_color(ctx, C_INFO);
   graphics_draw_text(ctx, s_time, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(s_center.x - 25, s_center.y + R_OUTER - 3, 50, 16),
+                     GRect(s_center.x - 25, s_center.y + R_OUTER - 1, 50, 16),
                      GTextOverflowModeFill, GTextAlignmentCenter, NULL);
 }
 
