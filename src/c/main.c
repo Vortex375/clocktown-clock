@@ -7,6 +7,7 @@
  * The minute ring and the hour disc both turn counter-clockwise; the
  * current minute and hour are the marks at the top. The corners show steps,
  * current temperature (via PebbleKit JS + Open-Meteo), heart rate and date.
+ * At night (sunset to sunrise, also from Open-Meteo) the sun disc becomes a moon.
  *
  * Design references (workspace res/ folder):
  *  - clocktownclockcolourguide.jpg  (flat colour guide, traced for the face)
@@ -44,7 +45,8 @@
 #define C_SLATE  GColorDarkGray
 #define C_GRAY   GColorLightGray
 #define C_RED    GColorRed
-#define C_WOOD   GColorWindsorTan     // hub + sun disc
+#define C_WOOD   GColorWindsorTan     // hub + sun/moon disc
+#define C_MOON   GColorJaegerGreen
 #define C_WHITE  GColorWhite
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,12 @@ static char s_temp[8] = "--\u00b0";
 static char s_hr[12] = "--";
 static char s_wday[8] = "";
 static char s_mday[4] = "";
+
+// Sun is shown between sunrise and sunset (minutes after local midnight),
+// the moon otherwise. Defaults until the phone sends the real times.
+static int s_sunrise = 6 * 60;
+static int s_sunset = 18 * 60;
+static bool s_night;
 
 // Sneaker icon for steps (relative to its top-left corner)
 static GPoint s_shoe_points[9] = {
@@ -394,6 +402,22 @@ static void face_sector(GContext *ctx, int inset, int from, int to, GColor fill)
   }
 }
 
+static void draw_moon_disc(GContext *ctx, GPoint c, int rot) {
+  fill_circle(ctx, c, 22, C_WOOD);
+  stroke_circle(ctx, c, 22, C_LINE, 1);
+  // Green crescent: green disc with a wooden bite towards the upper left
+  fill_circle(ctx, c, 17, C_MOON);
+  stroke_circle(ctx, c, 17, C_LINE, 1);
+  GPoint bite = local_pt(c, rot, -16, 20);
+  fill_circle(ctx, bite, 13, C_WOOD);
+  stroke_circle(ctx, bite, 13, C_LINE, 1);
+  // Repaint the disc edge the bite overlapped, then the crater
+  stroke_circle(ctx, c, 22, C_LINE, 1);
+  GPoint crater = local_pt(c, rot, 32, -24);
+  fill_circle(ctx, crater, 3, C_WOOD);
+  stroke_circle(ctx, crater, 3, C_LINE, 1);
+}
+
 static void draw_face(GContext *ctx) {
   int rot = s_face_rot;
 
@@ -429,7 +453,8 @@ static void draw_face(GContext *ctx) {
   for (int i = 1; i < 12; i++) {
     int a = rot + i * 30;
     if (i == 6) {
-      draw_sun_disc(ctx, polar_around(s_center, a, 49), rot);
+      GPoint p = polar_around(s_center, a, 49);
+      if (s_night) draw_moon_disc(ctx, p, rot); else draw_sun_disc(ctx, p, rot);
     } else if (i % 3 == 0) {
       GPoint p = polar_around(s_center, a, 62);
       fill_circle(ctx, p, 10, C_RED);
@@ -477,12 +502,16 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 // Data: time, health, weather
 // ---------------------------------------------------------------------------
 
-#define PERSIST_TEMP 1  // last temperature received from the phone
+#define PERSIST_TEMP    1  // last temperature received from the phone
+#define PERSIST_SUNRISE 2  // minutes after midnight
+#define PERSIST_SUNSET  3
 
 static void update_time(struct tm *t) {
   // Both turn counter-clockwise so the current value sits at the top
   s_ring_rot = -t->tm_min * 6;
   s_face_rot = -(t->tm_hour % 12) * 30;
+  int now = t->tm_hour * 60 + t->tm_min;
+  s_night = now < s_sunrise || now >= s_sunset;
   strftime(s_wday, sizeof(s_wday), "%a", t);
   for (char *c = s_wday; *c; c++) {
     if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
@@ -533,8 +562,18 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
   if (temp) {
     set_temp(temp->value->int32);
     persist_write_int(PERSIST_TEMP, temp->value->int32);
-    if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
   }
+  Tuple *rise = dict_find(iter, MESSAGE_KEY_SUNRISE);
+  Tuple *set = dict_find(iter, MESSAGE_KEY_SUNSET);
+  if (rise && set) {
+    s_sunrise = rise->value->int32;
+    s_sunset = set->value->int32;
+    persist_write_int(PERSIST_SUNRISE, s_sunrise);
+    persist_write_int(PERSIST_SUNSET, s_sunset);
+    time_t now = time(NULL);
+    update_time(localtime(&now));
+  }
+  if (s_canvas_layer) layer_mark_dirty(s_canvas_layer);
 }
 
 static void health_handler(HealthEventType event, void *context) {
@@ -576,10 +615,14 @@ static void main_window_unload(Window *window) {
 // ---------------------------------------------------------------------------
 
 static void init(void) {
+  if (persist_exists(PERSIST_TEMP)) set_temp(persist_read_int(PERSIST_TEMP));
+  if (persist_exists(PERSIST_SUNSET)) {
+    s_sunrise = persist_read_int(PERSIST_SUNRISE);
+    s_sunset = persist_read_int(PERSIST_SUNSET);
+  }
   time_t now = time(NULL);
   update_time(localtime(&now));
   update_health();
-  if (persist_exists(PERSIST_TEMP)) set_temp(persist_read_int(PERSIST_TEMP));
 
   s_window = window_create();
   window_set_window_handlers(s_window, (WindowHandlers) {

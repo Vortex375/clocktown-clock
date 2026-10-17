@@ -27,6 +27,8 @@
     ],
     "messageKeys": [
       "TEMPERATURE",
+      "SUNRISE",
+      "SUNSET",
       "REQUEST_WEATHER"
     ]
   }
