@@ -241,15 +241,18 @@ static void draw_heart(GContext *ctx, GPoint c) {
   gpath_destroy(p);
 }
 
-static void draw_calendar(GContext *ctx, GPoint c, const char *day) {
-  GRect r = GRect(c.x - 11, c.y - 9, 22, 18);
+// Calendar page 24x21 px with its top edge at y. The day uses GOTHIC 18 Bold
+// like the weekday: ink 11 px tall, 7 px below the box top, centred in the
+// 14 px high body.
+static void draw_calendar(GContext *ctx, int cx, int y, const char *day) {
+  GRect r = GRect(cx - 12, y, 24, 21);
   graphics_context_set_fill_color(ctx, C_INFO);
   graphics_fill_rect(ctx, r, 2, GCornersAll);
   graphics_context_set_fill_color(ctx, C_BG);
-  graphics_fill_rect(ctx, GRect(r.origin.x + 2, r.origin.y + 5, 18, 11), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(r.origin.x + 2, y + 5, 20, 14), 0, GCornerNone);
   graphics_context_set_text_color(ctx, C_INFO);
-  graphics_draw_text(ctx, day, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(r.origin.x, r.origin.y + 1, 22, 16), GTextOverflowModeFill,
+  graphics_draw_text(ctx, day, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                     GRect(r.origin.x - 4, y, 32, 21), GTextOverflowModeFill,
                      GTextAlignmentCenter, NULL);
 }
 
@@ -276,10 +279,17 @@ static void draw_item(GContext *ctx, int item, int x, bool top, int h) {
       }
       draw_value(ctx, s_temp, x, ty);
       break;
-    case ITEM_DATE:
-      draw_calendar(ctx, GPoint(cx, cy), s_mday);
-      draw_value(ctx, s_wday, x, ty);
+    case ITEM_DATE: {
+      // Weekday in GOTHIC 18 Bold to match the day; ink 2 px from the calendar
+      int cal_y = top ? 0 : h - 21;
+      int wday_y = top ? cal_y + 21 + 2 - 7 : cal_y - 2 - 11 - 7;
+      draw_calendar(ctx, cx, cal_y, s_mday);
+      graphics_context_set_text_color(ctx, C_INFO);
+      graphics_draw_text(ctx, s_wday, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                         GRect(x - 4, wday_y, CORNER_W + 8, 22), GTextOverflowModeFill,
+                         GTextAlignmentCenter, NULL);
       break;
+    }
     case ITEM_STEPS: {
       graphics_context_set_fill_color(ctx, C_INFO);
       GPoint shoe = GPoint(cx - 9, cy - 6);
