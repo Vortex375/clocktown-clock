@@ -8,7 +8,7 @@ heart rate.
 | Default | Digital time in the centre |
 | :---: | :---: |
 | ![Default settings](screenshots/default.png) | ![Digital time in the centre](screenshots/centre.png) |
-| **Digital time hidden** | **Midnight: the moon replaces the sun** |
+| **Digital time hidden** | **Night time: the moon replaces the sun** |
 | ![Digital time hidden](screenshots/hidden.png) | ![Midnight with the moon](screenshots/night.png) |
 
 ## How to read it
