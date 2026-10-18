@@ -71,7 +71,7 @@ typedef struct {
 } Settings;
 
 static Settings s_settings = {
-  .time_pos = TIME_CENTRE,
+  .time_pos = TIME_RING,
   .use_12h = false,
   .corner = { ITEM_STEPS, ITEM_WEATHER, ITEM_HEART, ITEM_DATE },
   .bg = { GColorBulgarianRoseARGB8 },

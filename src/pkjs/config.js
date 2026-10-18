@@ -25,7 +25,7 @@ module.exports = [
         type: 'select',
         messageKey: 'TimePosition',
         label: 'Digital time',
-        defaultValue: '0',
+        defaultValue: '3',
         options: [
           { label: 'Centre of the clock', value: '0' },
           { label: 'Bottom of the screen', value: '1' },
