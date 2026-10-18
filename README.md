@@ -5,9 +5,11 @@ of Zelda - Majora's Mask. Supports displaying the time in digital format and
 the four corners are configurable to display current date, weather, steps and
 heart rate.
 
-| Default | Digital time in the centre | Digital time hidden |
-| :---: | :---: | :---: |
-| ![Default settings](screenshots/default.png) | ![Digital time in the centre](screenshots/centre.png) | ![Digital time hidden](screenshots/hidden.png) |
+| Default | Digital time in the centre |
+| :---: | :---: |
+| ![Default settings](screenshots/default.png) | ![Digital time in the centre](screenshots/centre.png) |
+| **Digital time hidden** | **Midnight: the moon replaces the sun** |
+| ![Digital time hidden](screenshots/hidden.png) | ![Midnight with the moon](screenshots/night.png) |
 
 ## How to read it
 
