@@ -48,6 +48,17 @@ Only the emery platform (Pebble Time 2) is supported.
 - The weather icons are the official Pebble timeline weather icons, converted
   by `tools/weather_icons.py`.
 
+## License
+
+The watch face code is released under the [MIT License](LICENSE). The
+following parts keep their own terms:
+
+- `.agents/skills/pebble-watchface/`: the
+  [pebble-watchface agent skill](https://github.com/coredevices/pebble-watchface-agent-skill)
+  by Core Devices
+- `resources/images/weather_*.png`: derived from the Pebble timeline weather
+  icons
+
 ## Disclaimer
 
 This is an unofficial fan project. The Legend of Zelda and Majora's Mask are

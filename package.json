@@ -88,5 +88,6 @@
       "CornerBR",
       "BackgroundColor"
     ]
-  }
+  },
+  "license": "MIT"
 }
