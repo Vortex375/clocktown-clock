@@ -31,8 +31,8 @@
 // Palette (nearest 64-colour matches to the colour guide)
 // ---------------------------------------------------------------------------
 
-#define C_BG     GColorBulgarianRose  // screen background (dark wood)
-#define C_INFO   GColorWhite          // corner icons + numbers
+#define C_BG     (s_settings.bg)      // screen background (configurable)
+#define C_INFO   (s_info_color)       // corner icons + numbers, legible on C_BG
 #define C_RING   GColorBlack          // minute ring
 #define C_FRAME  GColorWindsorTan     // wooden frame around the ring
 #define C_MARK   GColorPastelYellow   // minute ring carvings
@@ -53,6 +53,31 @@
 // State
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Settings (set on the phone via Clay, see src/pkjs/config.js)
+// ---------------------------------------------------------------------------
+
+#define SETTINGS_KEY 10
+
+enum { TIME_CENTRE, TIME_BOTTOM, TIME_HIDDEN };
+enum { ITEM_NONE, ITEM_WEATHER, ITEM_DATE, ITEM_STEPS, ITEM_HEART, ITEM_COUNT };
+enum { CORNER_TL, CORNER_TR, CORNER_BL, CORNER_BR };
+
+typedef struct {
+  uint8_t time_pos;
+  bool use_12h;
+  uint8_t corner[4];
+  GColor bg;
+} Settings;
+
+static Settings s_settings = {
+  .time_pos = TIME_CENTRE,
+  .use_12h = false,
+  .corner = { ITEM_STEPS, ITEM_WEATHER, ITEM_HEART, ITEM_DATE },
+  .bg = { GColorBulgarianRoseARGB8 },
+};
+static GColor s_info_color;
+
 static Window *s_window;
 static Layer *s_canvas_layer;
 static GPoint s_center;
@@ -68,7 +93,7 @@ static char s_temp[8] = "--\u00b0";
 static char s_hr[12] = "--";
 static char s_wday[8] = "";
 static char s_mday[4] = "";
-static char s_time[6] = "";
+static char s_time[8] = "";
 
 // Weather icon (official Pebble timeline icons, see tools/weather_icons.py)
 static GBitmap *s_weather_bmp;
@@ -226,38 +251,59 @@ static void draw_calendar(GContext *ctx, GPoint c, const char *day) {
                      GTextAlignmentCenter, NULL);
 }
 
+// One corner item: icon + value. Top corners put the icon above the value,
+// bottom corners below it.
+static void draw_item(GContext *ctx, int item, int x, bool top, int h) {
+  int cx = x + CORNER_W / 2;
+  int cy = top ? 9 : h - 11;          // icon centre
+  int ty = top ? 14 : h - 41;         // value text top
+  switch (item) {
+    case ITEM_WEATHER:
+      if (s_weather_bmp) {
+        // The icons are white; recolour them to stay legible on the background
+        GColor *pal = gbitmap_get_palette(s_weather_bmp);
+        int n = gbitmap_get_format(s_weather_bmp) == GBitmapFormat1BitPalette ? 2 : 4;
+        for (int k = 0; pal && k < n; k++) {
+          if (pal[k].a) pal[k] = (GColor){ .argb = (C_INFO.argb & 0x3f) | (pal[k].argb & 0xc0) };
+        }
+        graphics_context_set_compositing_mode(ctx, GCompOpSet);
+        graphics_draw_bitmap_in_rect(ctx, s_weather_bmp, GRect(cx - 8, cy - 8, 16, 16));
+      }
+      draw_value(ctx, s_temp, x, ty);
+      break;
+    case ITEM_DATE:
+      draw_calendar(ctx, GPoint(cx, cy), s_mday);
+      draw_value(ctx, s_wday, x, ty);
+      break;
+    case ITEM_STEPS: {
+      graphics_context_set_fill_color(ctx, C_INFO);
+      GPoint shoe = GPoint(cx - 9, cy - 6);
+      gpath_move_to(s_shoe, shoe);
+      gpath_draw_filled(ctx, s_shoe);
+      // Sole stripe and laces cut out in the background colour
+      graphics_context_set_stroke_color(ctx, C_BG);
+      graphics_context_set_stroke_width(ctx, 1);
+      graphics_draw_line(ctx, GPoint(shoe.x + 1, shoe.y + 9), GPoint(shoe.x + 16, shoe.y + 9));
+      graphics_draw_line(ctx, GPoint(shoe.x + 8, shoe.y + 4), GPoint(shoe.x + 9, shoe.y + 6));
+      graphics_draw_line(ctx, GPoint(shoe.x + 11, shoe.y + 5), GPoint(shoe.x + 12, shoe.y + 7));
+      draw_value(ctx, s_steps, x, ty);
+      break;
+    }
+    case ITEM_HEART:
+      draw_heart(ctx, GPoint(cx, cy));
+      draw_value(ctx, s_hr, x, ty);
+      break;
+  }
+}
+
 static void draw_corners(GContext *ctx, GRect bounds) {
   int w = bounds.size.w, h = bounds.size.h;
-  int xl = 0, xr = w - CORNER_W, cxl = CORNER_W / 2, cxr = w - CORNER_W / 2;
-
-  // Top-left: steps
-  graphics_context_set_fill_color(ctx, C_INFO);
-  GPoint shoe = GPoint(cxl - 9, 4);
-  gpath_move_to(s_shoe, shoe);
-  gpath_draw_filled(ctx, s_shoe);
-  // Sole stripe and laces cut out in the background colour
-  graphics_context_set_stroke_color(ctx, C_BG);
-  graphics_context_set_stroke_width(ctx, 1);
-  graphics_draw_line(ctx, GPoint(shoe.x + 1, shoe.y + 9), GPoint(shoe.x + 16, shoe.y + 9));
-  graphics_draw_line(ctx, GPoint(shoe.x + 8, shoe.y + 4), GPoint(shoe.x + 9, shoe.y + 6));
-  graphics_draw_line(ctx, GPoint(shoe.x + 11, shoe.y + 5), GPoint(shoe.x + 12, shoe.y + 7));
-  draw_value(ctx, s_steps, xl, 12);
-
-  // Top-right: current weather
-  if (s_weather_bmp) {
-    graphics_context_set_compositing_mode(ctx, GCompOpSet);
-    graphics_draw_bitmap_in_rect(ctx, s_weather_bmp, GRect(cxr - 8, 1, 16, 16));
-  }
-  draw_value(ctx, s_temp, xr, 14);
-
-  // Bottom-left: heart rate
-  draw_value(ctx, s_hr, xl, h - 38);
-  draw_heart(ctx, GPoint(cxl, h - 10));
-
-  // Bottom-right: date (weekday + calendar with day of month)
-  draw_value(ctx, s_wday, xr, h - 41);
-  draw_calendar(ctx, GPoint(cxr, h - 11), s_mday);
+  draw_item(ctx, s_settings.corner[CORNER_TL], 0, true, h);
+  draw_item(ctx, s_settings.corner[CORNER_TR], w - CORNER_W, true, h);
+  draw_item(ctx, s_settings.corner[CORNER_BL], 0, false, h);
+  draw_item(ctx, s_settings.corner[CORNER_BR], w - CORNER_W, false, h);
 }
+
 // ---------------------------------------------------------------------------
 // Minute ring: 60 carvings, hour positions marked by shields, the 12 o'clock
 // position by a red omega and 3/6/9 by teal ovals. Shapes are in a local
@@ -479,6 +525,15 @@ static void draw_pointer(GContext *ctx) {
 // outline. LECO 32 ink is 84x22 px for "20:08", so with the outline it stays
 // inside the hour markers (inner edge 52 px from the centre).
 static void draw_time_text(GContext *ctx) {
+  if (s_settings.time_pos == TIME_HIDDEN) return;
+  if (s_settings.time_pos == TIME_BOTTOM) {
+    // Small, between the ring and the bottom edge, opposite the pointer
+    graphics_context_set_text_color(ctx, C_INFO);
+    graphics_draw_text(ctx, s_time, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+                       GRect(s_center.x - 25, s_center.y + R_OUTER - 1, 50, 16),
+                       GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    return;
+  }
   GFont font = fonts_get_system_font(FONT_KEY_LECO_32_BOLD_NUMBERS);
   GRect box = GRect(s_center.x - 60, s_center.y - 21, 120, 34);  // ink centred
   graphics_context_set_text_color(ctx, C_LINE);
@@ -522,7 +577,8 @@ static void update_time(struct tm *t) {
   s_face_rot = -(t->tm_hour % 12) * 30;
   int now = t->tm_hour * 60 + t->tm_min;
   s_night = now < s_sunrise || now >= s_sunset;
-  strftime(s_time, sizeof(s_time), "%H:%M", t);
+  strftime(s_time, sizeof(s_time), s_settings.use_12h ? "%I:%M" : "%H:%M", t);
+  if (s_settings.use_12h && s_time[0] == '0') memmove(s_time, s_time + 1, strlen(s_time));
   strftime(s_wday, sizeof(s_wday), "%a", t);
   for (char *c = s_wday; *c; c++) {
     if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
@@ -593,7 +649,51 @@ static void request_weather(void) {
   }
 }
 
+static void apply_settings(void) {
+  s_info_color = gcolor_legible_over(s_settings.bg);
+  time_t now = time(NULL);
+  update_time(localtime(&now));
+}
+
+// Clay sends selects as strings and toggles/colours as integers
+static int tuple_int(Tuple *t) {
+  return t->type == TUPLE_CSTRING ? atoi(t->value->cstring) : (int)t->value->int32;
+}
+
+static bool read_settings(DictionaryIterator *iter) {
+  static const uint32_t *corner_keys[4] = {
+    &MESSAGE_KEY_CornerTL, &MESSAGE_KEY_CornerTR, &MESSAGE_KEY_CornerBL, &MESSAGE_KEY_CornerBR
+  };
+  bool changed = false;
+  Tuple *t;
+  if ((t = dict_find(iter, MESSAGE_KEY_TimePosition))) {
+    int v = tuple_int(t);
+    if (v >= TIME_CENTRE && v <= TIME_HIDDEN) s_settings.time_pos = v;
+    changed = true;
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_Use12h))) {
+    s_settings.use_12h = tuple_int(t) != 0;
+    changed = true;
+  }
+  for (int i = 0; i < 4; i++) {
+    if ((t = dict_find(iter, *corner_keys[i]))) {
+      int v = tuple_int(t);
+      if (v >= ITEM_NONE && v < ITEM_COUNT) s_settings.corner[i] = v;
+      changed = true;
+    }
+  }
+  if ((t = dict_find(iter, MESSAGE_KEY_BackgroundColor))) {
+    s_settings.bg = GColorFromHEX(tuple_int(t));
+    changed = true;
+  }
+  return changed;
+}
+
 static void inbox_received(DictionaryIterator *iter, void *context) {
+  if (read_settings(iter)) {
+    persist_write_data(SETTINGS_KEY, &s_settings, sizeof(s_settings));
+    apply_settings();
+  }
   Tuple *temp = dict_find(iter, MESSAGE_KEY_TEMPERATURE);
   if (temp) {
     set_temp(temp->value->int32);
@@ -683,6 +783,8 @@ static void main_window_unload(Window *window) {
 // ---------------------------------------------------------------------------
 
 static void init(void) {
+  persist_read_data(SETTINGS_KEY, &s_settings, sizeof(s_settings));
+  s_info_color = gcolor_legible_over(s_settings.bg);
   if (persist_exists(PERSIST_TEMP)) set_temp(persist_read_int(PERSIST_TEMP));
   set_weather_code(persist_exists(PERSIST_WEATHER) ? persist_read_int(PERSIST_WEATHER) : -1);
   if (persist_exists(PERSIST_SUNSET)) {
@@ -703,7 +805,7 @@ static void init(void) {
 
   // The phone sends the weather on startup; the watch asks again every 30 min
   app_message_register_inbox_received(inbox_received);
-  app_message_open(64, 64);
+  app_message_open(256, 64);  // settings arrive as one message
   health_service_events_subscribe(health_handler, NULL);
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 }

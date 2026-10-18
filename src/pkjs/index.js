@@ -1,3 +1,6 @@
+var Clay = require('@rebble/clay');
+var clay = new Clay(require('./config'));
+
 // Fetches the current temperature, weather code and today's sunrise/sunset from Open-Meteo
 // (no API key needed) and sends them to the watch. Runs on startup and
 // whenever the watch asks.

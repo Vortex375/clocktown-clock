@@ -6,7 +6,9 @@
     "pebble-app"
   ],
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@rebble/clay": "^1.1.0"
+  },
   "pebble": {
     "displayName": "Clock Town Clock",
     "uuid": "9ce6a45a-ade5-4c03-96af-7aaf8ae13dbe",
@@ -69,14 +71,22 @@
     },
     "capabilities": [
       "location",
-      "health"
+      "health",
+      "configurable"
     ],
     "messageKeys": [
       "TEMPERATURE",
       "WEATHER_CODE",
       "SUNRISE",
       "SUNSET",
-      "REQUEST_WEATHER"
+      "REQUEST_WEATHER",
+      "TimePosition",
+      "Use12h",
+      "CornerTL",
+      "CornerTR",
+      "CornerBL",
+      "CornerBR",
+      "BackgroundColor"
     ]
   }
 }
