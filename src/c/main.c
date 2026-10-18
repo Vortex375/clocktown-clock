@@ -4,7 +4,7 @@
  * Watchface inspired by the Clock Tower clock from The Legend of Zelda:
  * Majora's Mask, for Pebble Time 2 (emery, 200x228 rectangular display).
  *
- * The minute ring and the hour disc both turn counter-clockwise; the
+ * The minute ring and the hour disc both turn clockwise; the
  * current minute and hour are the marks at the top. The corners show steps,
  * current temperature (via PebbleKit JS + Open-Meteo), heart rate and date.
  * At night (sunset to sunrise, also from Open-Meteo) the sun disc becomes a moon.
@@ -81,7 +81,7 @@ static GColor s_info_color;
 static Window *s_window;
 static Layer *s_canvas_layer;
 static GPoint s_center;
-static int s_face_rot;   // hour disc rotation in degrees (counter-clockwise < 0)
+static int s_face_rot;   // hour disc rotation in degrees (clockwise > 0)
 static int s_ring_rot;     // minute ring rotation as drawn
 static int s_ring_target;  // rotation for the current minute
 static AppTimer *s_wiggle_timer;
@@ -343,7 +343,7 @@ static void draw_ring(GContext *ctx, int rot) {
   stroke_circle(ctx, s_center, R_OUTER - 1, C_FRAME, 2);
 
   for (int m = 0; m < 60; m++) {
-    int a = rot + m * 6;
+    int a = rot - m * 6;  // marks run counter-clockwise, ring turns clockwise
     if (m == 0) {
       local_poly(ctx, s_center, a, s_omega, 15, C_RED, 1);
       local_oval(ctx, s_center, a, 0, 366, 8, 11, C_RING, 0);
@@ -508,7 +508,7 @@ static void draw_face(GContext *ctx) {
   local_oval(ctx, s_center, rot, 0, UQ(315), UQ(55), UQ(62), C_RED, 1);
   local_oval(ctx, s_center, rot, 0, UQ(315), UQ(24), UQ(32), C_WHITE, 1);
   for (int i = 1; i < 12; i++) {
-    int a = rot + i * 30;
+    int a = rot - i * 30;  // markers run counter-clockwise, disc turns clockwise
     if (i == 6) {
       GPoint p = polar_around(s_center, a, 49);
       if (s_night) draw_moon_disc(ctx, p, rot); else draw_sun_disc(ctx, p, rot);
@@ -528,7 +528,7 @@ static void draw_face(GContext *ctx) {
   stroke_circle(ctx, s_center, R_FACE, C_LINE, 2);
 
   // Halo around the hour marker at the top (eye, ring, dot or sun disc)
-  int h = ((-rot / 30) % 12 + 12) % 12;
+  int h = (rot / 30) % 12;
   static const int8_t halo_y[4] = { 59, 62, 58, 49 };   // marker centre radius
   static const int8_t halo_r[4] = { 15, 13, 8, 25 };    // halo radius
   int kind = (h == 0) ? 0 : (h == 6) ? 3 : (h % 3 == 0) ? 1 : 2;
@@ -551,7 +551,7 @@ static void draw_pointer(GContext *ctx) {
   if (s_settings.time_pos == TIME_RING) {
     // Upright oval over the current minute, with the minute written in it
     // Coloured like the ring mark it covers: red omega, teal ovals, white bars
-    int m = (-s_ring_target / 6) % 60;
+    int m = (s_ring_target / 6) % 60;
     GColor fill = (m == 0) ? C_RED : (m % 15 == 0) ? C_OVAL : C_WHITE;
     local_oval(ctx, s_center, 0, 0, 4 * 88, 4 * 13, 4 * 14, fill, 2);
     draw_label(ctx, s_min_txt, GPoint(s_center.x, s_center.y - 88));
@@ -614,9 +614,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 #define PERSIST_WEATHER 4  // WMO weather code
 
 static void update_time(struct tm *t) {
-  // Both turn counter-clockwise so the current value sits at the top
-  s_ring_target = -t->tm_min * 6;
-  s_face_rot = -(t->tm_hour % 12) * 30;
+  // Both turn clockwise so the current value sits at the top
+  s_ring_target = t->tm_min * 6;
+  s_face_rot = (t->tm_hour % 12) * 30;
   int now = t->tm_hour * 60 + t->tm_min;
   s_night = now < s_sunrise || now >= s_sunset;
   strftime(s_time, sizeof(s_time), s_settings.use_12h ? "%I:%M" : "%H:%M", t);
@@ -769,9 +769,9 @@ static void health_handler(HealthEventType event, void *context) {
 
 // Minute change: the ring rocks back and forth like a mechanical escapement,
 // then snaps to the new minute. Offsets are degrees from the old position
-// (positive = backwards), one frame each.
+// (negative = backwards), one frame each.
 #define WIGGLE_FRAME_MS 40
-static const int8_t s_wiggle[] = { 1, -1, 1, -1 };
+static const int8_t s_wiggle[] = { -1, 1, -1, 1 };
 
 static void wiggle_cb(void *data) {
   int base = s_ring_rot - (s_wiggle_step ? s_wiggle[s_wiggle_step - 1] : 0);

@@ -12,7 +12,7 @@ heart rate.
 ## How to read it
 
 Like the clock in the game, the outer minute ring and the inner hour disc both
-turn counter-clockwise; the current minute and hour are the marks at the top.
+turn clockwise; the current minute and hour are the marks at the top.
 The ring rocks back and forth for a moment before it moves on to the next
 minute. Between sunset and sunrise the sun on the hour disc becomes a moon.
 
