@@ -59,7 +59,7 @@
 
 #define SETTINGS_KEY 10
 
-enum { TIME_CENTRE, TIME_BOTTOM, TIME_HIDDEN };
+enum { TIME_CENTRE, TIME_BOTTOM, TIME_HIDDEN, TIME_RING };
 enum { ITEM_NONE, ITEM_WEATHER, ITEM_DATE, ITEM_STEPS, ITEM_HEART, ITEM_COUNT };
 enum { CORNER_TL, CORNER_TR, CORNER_BL, CORNER_BR };
 
@@ -94,6 +94,8 @@ static char s_hr[12] = "--";
 static char s_wday[8] = "";
 static char s_mday[4] = "";
 static char s_time[8] = "";
+static char s_hour_txt[3] = "";  // for TIME_RING
+static char s_min_txt[3] = "";
 
 // Weather icon (official Pebble timeline icons, see tools/weather_icons.py)
 static GBitmap *s_weather_bmp;
@@ -223,8 +225,8 @@ static void local_oval(GContext *ctx, GPoint c, int deg, int t, int r,
 
 static void draw_value(GContext *ctx, const char *text, int x, int y) {
   graphics_context_set_text_color(ctx, C_INFO);
-  graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                     GRect(x, y, CORNER_W, 22), GTextOverflowModeFill,
+  graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                     GRect(x - 4, y, CORNER_W + 8, 30), GTextOverflowModeFill,
                      GTextAlignmentCenter, NULL);
 }
 
@@ -255,8 +257,11 @@ static void draw_calendar(GContext *ctx, GPoint c, const char *day) {
 // bottom corners below it.
 static void draw_item(GContext *ctx, int item, int x, bool top, int h) {
   int cx = x + CORNER_W / 2;
-  int cy = top ? 9 : h - 11;          // icon centre
-  int ty = top ? 14 : h - 41;         // value text top
+  // GOTHIC 24 Bold digits: ink 14 px tall, starting 10 px below the box top.
+  // Icons hug the screen edge, values sit 2 px from them and keep >= 2 px
+  // from the ring's frame (widest value "9999" is 38 px).
+  int cy = top ? 9 : h - 9;           // icon centre
+  int ty = top ? 10 : h - 44;         // value box top (ink 20..33 / h-34..h-21)
   switch (item) {
     case ITEM_WEATHER:
       if (s_weather_bmp) {
@@ -435,6 +440,15 @@ static void face_sector(GContext *ctx, int inset, int from, int to, GColor fill)
   }
 }
 
+// Black bold number centred on c (GOTHIC 24 Bold: ink 14 px tall, 10 px below
+// the box top; two digits are 18 px wide)
+static void draw_label(GContext *ctx, const char *text, GPoint c) {
+  graphics_context_set_text_color(ctx, C_LINE);
+  graphics_draw_text(ctx, text, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                     GRect(c.x - 20, c.y - 17, 40, 30), GTextOverflowModeFill,
+                     GTextAlignmentCenter, NULL);
+}
+
 static void draw_moon_disc(GContext *ctx, GPoint c, int rot) {
   fill_circle(ctx, c, 22, C_WOOD);
   stroke_circle(ctx, c, 22, C_LINE, 1);
@@ -509,12 +523,30 @@ static void draw_face(GContext *ctx) {
   static const int8_t halo_r[4] = { 15, 13, 8, 25 };    // halo radius
   int kind = (h == 0) ? 0 : (h == 6) ? 3 : (h % 3 == 0) ? 1 : 2;
   GPoint top = GPoint(s_center.x, s_center.y - halo_y[kind]);
-  stroke_circle(ctx, top, halo_r[kind], C_LINE, 4);
-  stroke_circle(ctx, top, halo_r[kind], C_WHITE, 2);
+  if (s_settings.time_pos == TIME_RING) {
+    // Enlarged marker with the hour written in it, at a fixed radius so it
+    // clears the minute oval whatever marker sits at the top
+    GPoint c = GPoint(s_center.x, s_center.y - 57);
+    fill_circle(ctx, c, 13, C_WHITE);
+    stroke_circle(ctx, c, 13, C_LINE, 2);
+    draw_label(ctx, s_hour_txt, c);
+  } else {
+    stroke_circle(ctx, top, halo_r[kind], C_LINE, 4);
+    stroke_circle(ctx, top, halo_r[kind], C_WHITE, 2);
+  }
 }
 
 // Pointer above the ring marking the 12 o'clock reading position
 static void draw_pointer(GContext *ctx) {
+  if (s_settings.time_pos == TIME_RING) {
+    // Upright oval over the current minute, with the minute written in it
+    // Coloured like the ring mark it covers: red omega, teal ovals, white bars
+    int m = (-s_ring_target / 6) % 60;
+    GColor fill = (m == 0) ? C_RED : (m % 15 == 0) ? C_OVAL : C_WHITE;
+    local_oval(ctx, s_center, 0, 0, 4 * 88, 4 * 13, 4 * 14, fill, 2);
+    draw_label(ctx, s_min_txt, GPoint(s_center.x, s_center.y - 88));
+    return;
+  }
   int y = s_center.y - R_OUTER;
   GPoint tri[3] = { { s_center.x - 7, y - 12 }, { s_center.x + 7, y - 12 },
                     { s_center.x, y - 1 } };
@@ -525,7 +557,7 @@ static void draw_pointer(GContext *ctx) {
 // outline. LECO 32 ink is 84x22 px for "20:08", so with the outline it stays
 // inside the hour markers (inner edge 52 px from the centre).
 static void draw_time_text(GContext *ctx) {
-  if (s_settings.time_pos == TIME_HIDDEN) return;
+  if (s_settings.time_pos == TIME_HIDDEN || s_settings.time_pos == TIME_RING) return;
   if (s_settings.time_pos == TIME_BOTTOM) {
     // Small, between the ring and the bottom edge, opposite the pointer
     graphics_context_set_text_color(ctx, C_INFO);
@@ -579,6 +611,9 @@ static void update_time(struct tm *t) {
   s_night = now < s_sunrise || now >= s_sunset;
   strftime(s_time, sizeof(s_time), s_settings.use_12h ? "%I:%M" : "%H:%M", t);
   if (s_settings.use_12h && s_time[0] == '0') memmove(s_time, s_time + 1, strlen(s_time));
+  int hour = s_settings.use_12h ? (t->tm_hour + 11) % 12 + 1 : t->tm_hour;
+  snprintf(s_hour_txt, sizeof(s_hour_txt), "%d", hour);
+  snprintf(s_min_txt, sizeof(s_min_txt), "%02d", t->tm_min);
   strftime(s_wday, sizeof(s_wday), "%a", t);
   for (char *c = s_wday; *c; c++) {
     if (*c >= 'a' && *c <= 'z') *c -= 'a' - 'A';
@@ -598,7 +633,7 @@ static void update_health(void) {
     if (steps < 10000) {
       snprintf(s_steps, sizeof(s_steps), "%d", steps);
     } else {
-      snprintf(s_steps, sizeof(s_steps), "%d.%dk", steps / 1000, steps % 1000 / 100);
+      snprintf(s_steps, sizeof(s_steps), "%dk", steps / 1000);  // keeps it 4 chars wide
     }
   }
   HealthValue bpm = 0;
@@ -668,7 +703,7 @@ static bool read_settings(DictionaryIterator *iter) {
   Tuple *t;
   if ((t = dict_find(iter, MESSAGE_KEY_TimePosition))) {
     int v = tuple_int(t);
-    if (v >= TIME_CENTRE && v <= TIME_HIDDEN) s_settings.time_pos = v;
+    if (v >= TIME_CENTRE && v <= TIME_RING) s_settings.time_pos = v;
     changed = true;
   }
   if ((t = dict_find(iter, MESSAGE_KEY_Use12h))) {

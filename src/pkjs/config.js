@@ -29,6 +29,7 @@ module.exports = [
         options: [
           { label: 'Centre of the clock', value: '0' },
           { label: 'Bottom of the screen', value: '1' },
+          { label: 'On the ring and disc', value: '3' },
           { label: 'Hidden', value: '2' }
         ]
       },
